@@ -44,6 +44,8 @@ data class StandingRow(
     val won: String,
     val drawn: String,
     val lost: String,
+    val goalsFor: String,
+    val goalsAgainst: String,
     val gd: String,
     val points: String
 )
@@ -215,7 +217,14 @@ class StatsActivity : AppCompatActivity() {
             }
 
             val rankVal = (statsMap["rank"] ?: statsMap["RK"])?.toIntOrNull() ?: (eIdx + 1)
-            val gdRaw = statsMap["pointDifferential"] ?: statsMap["GD"] ?: "0"
+            val gfVal = statsMap["pointsFor"] ?: statsMap["GF"] ?: statsMap["F"] ?: "0"
+            val gaVal = statsMap["pointsAgainst"] ?: statsMap["GA"] ?: statsMap["A"] ?: "0"
+
+            val gdRaw = statsMap["pointDifferential"] ?: statsMap["GD"] ?: run {
+                val gfNum = gfVal.toIntOrNull()
+                val gaNum = gaVal.toIntOrNull()
+                if (gfNum != null && gaNum != null) (gfNum - gaNum).toString() else "0"
+            }
             val gdFormatted = if (!gdRaw.startsWith("-") && !gdRaw.startsWith("+") && gdRaw != "0") {
                 "+$gdRaw"
             } else gdRaw
@@ -230,6 +239,8 @@ class StatsActivity : AppCompatActivity() {
                     won = statsMap["wins"] ?: statsMap["W"] ?: "0",
                     drawn = statsMap["ties"] ?: statsMap["D"] ?: "0",
                     lost = statsMap["losses"] ?: statsMap["L"] ?: "0",
+                    goalsFor = gfVal,
+                    goalsAgainst = gaVal,
                     gd = gdFormatted,
                     points = statsMap["points"] ?: statsMap["P"] ?: "0"
                 )
@@ -363,13 +374,11 @@ class StatsActivity : AppCompatActivity() {
             val seenKeys = mutableSetOf<String>()
             val list = mutableListOf<FixtureRow>()
 
-            // 1. Lấy lịch các trận trong khoảng 3 tuần (5 ngày trước -> 16 ngày sau)
             val rangeUrl = "https://site.api.espn.com/apis/site/v2/sports/soccer/$slug/scoreboard?dates=$datesRange&limit=150"
             fetchJson(rangeUrl)?.let {
                 parseEventsFromRoot(it, league.title, isoFmtShort, isoFmtFull, outTimeFmt, seenKeys, list)
             }
 
-            // 2. Bổ sung vòng đấu hiện tại mặc định nếu chưa có trận nào trong khoảng ngày trên
             if (list.isEmpty()) {
                 val defaultUrl = "https://site.api.espn.com/apis/site/v2/sports/soccer/$slug/scoreboard?limit=150"
                 fetchJson(defaultUrl)?.let {
@@ -423,6 +432,8 @@ class StatsActivity : AppCompatActivity() {
             val tvWon: TextView = v.findViewById(R.id.tvWon)
             val tvDrawn: TextView = v.findViewById(R.id.tvDrawn)
             val tvLost: TextView = v.findViewById(R.id.tvLost)
+            val tvGf: TextView = v.findViewById(R.id.tvGoalsFor)
+            val tvGa: TextView = v.findViewById(R.id.tvGoalsAgainst)
             val tvGd: TextView = v.findViewById(R.id.tvGoalDiff)
             val tvPts: TextView = v.findViewById(R.id.tvPoints)
             var job: Job? = null
@@ -453,6 +464,8 @@ class StatsActivity : AppCompatActivity() {
             holder.tvWon.text = r.won
             holder.tvDrawn.text = r.drawn
             holder.tvLost.text = r.lost
+            holder.tvGf.text = r.goalsFor
+            holder.tvGa.text = r.goalsAgainst
             holder.tvGd.text = r.gd
             holder.tvPts.text = r.points
 
