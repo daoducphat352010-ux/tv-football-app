@@ -34,13 +34,27 @@ class PlayerActivity : AppCompatActivity() {
     private val tvUserAgent =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
+    private fun extractOrigin(targetUrl: String): String {
+        return runCatching {
+            val uri = Uri.parse(targetUrl)
+            val scheme = uri.scheme ?: "https"
+            val host = uri.host
+            if (!host.isNullOrBlank()) "$scheme://$host" else "https://gavang33.live"
+        }.getOrDefault("https://gavang33.live")
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         val title = intent.getStringExtra("title") ?: "Trực Tiếp Bóng Đá"
         val rawUrl = intent.getStringExtra("url").orEmpty().trim()
-        val referer = intent.getStringExtra("referer").orEmpty().trim().ifBlank { "https://gavang33.live/" }
+        val intentReferer = intent.getStringExtra("referer").orEmpty().trim()
+        val referer = when {
+            intentReferer.isNotBlank() -> intentReferer
+            rawUrl.startsWith("http") -> "${extractOrigin(rawUrl)}/"
+            else -> "https://gavang33.live/"
+        }
 
         val root = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
@@ -137,10 +151,11 @@ class PlayerActivity : AppCompatActivity() {
         destroySniffer()
 
         val vv = videoView ?: return
+        val dynamicOrigin = extractOrigin(referer.ifBlank { m3u8Url })
         val headers = mutableMapOf(
             "User-Agent" to tvUserAgent,
             "Referer" to referer,
-            "Origin" to "https://gavang33.live"
+            "Origin" to dynamicOrigin
         )
 
         vv.setVideoURI(Uri.parse(m3u8Url), headers)
@@ -174,17 +189,18 @@ class PlayerActivity : AppCompatActivity() {
     ) {
         statusBox.visibility = View.VISIBLE
         progress.visibility = View.VISIBLE
-        statusText.text = "Đang kiểm tra tín hiệu trực tiếp từ phòng BLV..."
+        statusText.text = "Đang dò tín hiệu phát từ phòng BLV (chờ tối đa 28 giây)..."
 
         val timeoutRunnable = Runnable {
             if (!streamStarted) {
                 destroySniffer()
                 progress.visibility = View.GONE
-                statusText.text = "Trận đấu chưa bắt đầu hoặc chưa có tín hiệu phát.\nVui lòng quay lại khi đến giờ bóng lăn."
+                statusText.text = "Trận đấu chưa bắt đầu hoặc phản hồi quá chậm.\nVui lòng thử lại hoặc chọn phòng khác."
             }
         }
-        mainHandler.postDelayed(timeoutRunnable, 11_000)
+        mainHandler.postDelayed(timeoutRunnable, 28_000)
 
+        val dynamicOrigin = extractOrigin(roomUrl)
         val wv = WebView(this).apply {
             visibility = View.GONE
             settings.apply {
@@ -220,7 +236,7 @@ class PlayerActivity : AppCompatActivity() {
             }
         }
         snifferWebView = wv
-        wv.loadUrl(roomUrl, mapOf("Referer" to "https://gavang33.live/"))
+        wv.loadUrl(roomUrl, mapOf("Referer" to "$dynamicOrigin/"))
     }
 
     private fun destroySniffer() {
