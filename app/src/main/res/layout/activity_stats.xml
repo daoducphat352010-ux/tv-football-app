@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_main_stadium"
+    android:orientation="vertical"
+    android:paddingStart="32dp"
+    android:paddingEnd="32dp"
+    android:paddingTop="18dp"
+    android:paddingBottom="12dp">
+
+    <!-- Thanh tiêu đề trên cùng -->
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginBottom="10dp">
+
+        <Button
+            android:id="@+id/btnStatsBack"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_alignParentStart="true"
+            android:layout_centerVertical="true"
+            android:background="@drawable/bg_pill_action"
+            android:focusable="true"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:stateListAnimator="@null"
+            android:text="← Trang chủ"
+            android:textAllCaps="false"
+            android:textColor="#F8FAFC"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvStatsTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:text="Bảng Xếp Hạng"
+            android:textColor="#FFFFFF"
+            android:textSize="23sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/btnStatsReload"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_alignParentEnd="true"
+            android:layout_centerVertical="true"
+            android:background="@drawable/bg_pill_primary"
+            android:focusable="true"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:stateListAnimator="@null"
+            android:text="↻ Cập nhật"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+    </RelativeLayout>
+
+    <!-- Thanh chọn 9 giải đấu dạng nút viên thuốc -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvLeagueTabs"
+        android:layout_width="match_parent"
+        android:layout_height="46dp"
+        android:layout_marginBottom="10dp"
+        android:clipToPadding="false" />
+
+    <!-- Dòng trạng thái -->
+    <TextView
+        android:id="@+id/tvStatsStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp"
+        android:gravity="center"
+        android:singleLine="true"
+        android:text="Đang tải dữ liệu giải đấu..."
+        android:textColor="#7DD3FC"
+        android:textSize="12sp" />
+
+    <!-- Tiêu đề cột cho Bảng Xếp Hạng -->
+    <LinearLayout
+        android:id="@+id/layoutStandingHeader"
+        android:layout_width="match_parent"
+        android:layout_height="38dp"
+        android:layout_marginBottom="6dp"
+        android:background="#152036"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="42dp"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="#"
+            android:textColor="#94A3B8"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:layout_weight="1"
+            android:text="CÂU LẠC BỘ"
+            android:textColor="#94A3B8"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="52dp"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="TRẬN"
+            android:textColor="#94A3B8"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="46dp"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="T"
+            android:textColor="#94A3B8"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="46dp"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="H"
+            android:textColor="#94A3B8"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="46dp"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="B"
+            android:textColor="#94A3B8"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="56dp"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="HS"
+            android:textColor="#94A3B8"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="64dp"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="ĐIỂM"
+            android:textColor="#38BDF8"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Danh sách BXH hoặc Lịch thi đấu -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvStatsContent"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingBottom="12dp" />
+
+</LinearLayout>
