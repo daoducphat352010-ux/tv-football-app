@@ -33,6 +33,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var sourceAdapter: SourceAdapter
     private lateinit var matchAdapter: MatchAdapter
 
+    private var activeSourceUrl: String = ""
     private var allMatches: List<MatchCard> = emptyList()
     private var lastUpdatedText: String = ""
     private var isShowingMatches: Boolean = false
@@ -77,8 +78,9 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        val activeUrl = getSavedSources().firstOrNull()?.second ?: defaultFeedUrl
-        loadFeedFromUrl(activeUrl, "GaVang33 TV")
+        val firstSource = getSavedSources().first()
+        showSourceManagerScreen()
+        prefetchDefaultSource(firstSource.second, firstSource.first)
     }
 
     private fun getSavedSources(): MutableList<Pair<String, String>> {
@@ -113,18 +115,62 @@ class MainActivity : AppCompatActivity() {
         prefs.edit().putString("saved_sources_json", arr.toString()).apply()
     }
 
-    private fun loadFeedFromUrl(url: String, sourceTitle: String) {
-        tvStatus.text = "Đang tải dữ liệu từ $sourceTitle..."
+    private fun saveSourceMeta(url: String, updatedAt: String, count: Int) {
+        val raw = prefs.getString("source_meta_json", "{}") ?: "{}"
+        val root = runCatching { JSONObject(raw) }.getOrDefault(JSONObject())
+        root.put(url, JSONObject().apply {
+            put("updated", updatedAt)
+            put("count", count)
+        })
+        prefs.edit().putString("source_meta_json", root.toString()).apply()
+    }
+
+    private fun getSourceMeta(url: String): Pair<String, Int>? {
+        val raw = prefs.getString("source_meta_json", null) ?: return null
+        return runCatching {
+            val obj = JSONObject(raw).optJSONObject(url) ?: return null
+            val updated = obj.optString("updated", "")
+            val count = obj.optInt("count", 0)
+            updated to count
+        }.getOrNull()
+    }
+
+    private fun prefetchDefaultSource(url: String, name: String) {
+        tvStatus.text = "Đang đồng bộ dữ liệu từ $name..."
         lifecycleScope.launch {
             val res = repo.loadFromUrlOrAsset(this@MainActivity, url)
             res.onSuccess { feed ->
+                activeSourceUrl = url
                 allMatches = feed.matches
                 lastUpdatedText = feed.updatedAt.ifBlank { feed.title }
-                tvStatus.text = "Cập nhật lúc $lastUpdatedText • ${allMatches.size} trận đấu"
-                showSourceManagerScreen()
+                saveSourceMeta(url, lastUpdatedText, allMatches.size)
+                if (!isShowingMatches) {
+                    showSourceManagerScreen()
+                }
+            }.onFailure {
+                tvStatus.text = "Chọn một nguồn bên dưới hoặc bấm + Thêm link"
+            }
+        }
+    }
+
+    private fun openSourceMatches(url: String, sourceTitle: String, forceReload: Boolean = false) {
+        if (!forceReload && url == activeSourceUrl && allMatches.isNotEmpty()) {
+            showMatchListScreen("$sourceTitle (${allMatches.size} trận)", allMatches)
+            return
+        }
+
+        tvStatus.text = "Đang tải danh sách trận từ $sourceTitle..."
+        lifecycleScope.launch {
+            val res = repo.loadFromUrlOrAsset(this@MainActivity, url)
+            res.onSuccess { feed ->
+                activeSourceUrl = url
+                allMatches = feed.matches
+                lastUpdatedText = feed.updatedAt.ifBlank { feed.title }
+                saveSourceMeta(url, lastUpdatedText, allMatches.size)
+                showMatchListScreen("$sourceTitle (${allMatches.size} trận)", allMatches)
             }.onFailure { err ->
-                tvStatus.text = "Lỗi tải nguồn: ${err.message ?: "Kiểm tra kết nối mạng"}"
-                showSourceManagerScreen()
+                tvStatus.text = "Lỗi tải nguồn: ${err.message ?: "Kiểm tra lại đường dẫn"}"
+                Toast.makeText(this@MainActivity, "Không tải được dữ liệu từ nguồn này", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -135,71 +181,43 @@ class MainActivity : AppCompatActivity() {
         btnBackSources.visibility = View.GONE
         btnAddSource.visibility = View.VISIBLE
 
-        val cards = mutableListOf<SourceCardItem>()
-
-        // 1. Các link nguồn đã lưu (thẻ màu xanh ngọc & cam nổi bật giống ảnh mẫu)
         val saved = getSavedSources()
+        tvStatus.text = "Hiện có ${saved.size} nguồn phát • Bấm OK để xem, giữ OK để tùy chỉnh"
+
+        val cards = mutableListOf<SourceCardItem>()
+        val icons = listOf("⚽", "▶", "📺", "🏆", "🔥")
+
         saved.forEachIndexed { idx, (name, url) ->
             val style = when (idx) {
-                0 -> 0 // Mint
-                1 -> 1 // Orange
-                else -> 3 // Dark
+                0 -> 0 // Xanh ngọc (Mint) giống thẻ đầu tiên
+                1 -> 1 // Cam nổi bật giống thẻ thứ 2
+                else -> 3 // Nền tối sang trọng cho các nguồn tiếp theo
             }
-            val desc = if (idx == 0 && allMatches.isNotEmpty()) {
-                "$name - Trực tiếp bóng đá HD ($lastUpdatedText • ${allMatches.size} trận)"
+            val meta = getSourceMeta(url)
+            val subtitle = if (meta != null && meta.second > 0) {
+                "$name - Trực tiếp bóng đá HD (${meta.first} • ${meta.second} trận)"
             } else {
-                "Bấm để tải danh sách trận đấu từ nguồn $name"
+                "$name - Nguồn phát trực tiếp bóng đá & sự kiện thể thao"
             }
+
             cards.add(
                 SourceCardItem(
                     id = "src_$idx",
                     title = name,
-                    subtitle = desc,
-                    iconText = "⚽",
+                    subtitle = subtitle,
+                    iconText = icons[idx % icons.size],
                     styleType = style,
                     feedUrl = url
                 )
             )
         }
 
-        // 2. Thẻ Đang Trực Tiếp (LIVE)
-        val liveCount = allMatches.count { it.status.equals("LIVE", ignoreCase = true) }
-        cards.add(
-            SourceCardItem(
-                id = "cat_live",
-                title = "Đang Trực Tiếp",
-                subtitle = "Hiện có $liveCount trận đang diễn ra trực tiếp với bình luận viên",
-                iconText = "▶",
-                styleType = 2, // Red
-                onlyLive = true
-            )
-        )
-
-        // 3. Tự động tạo thẻ theo từng Giải Đấu có trong dữ liệu
-        val leagueGroups = allMatches
-            .groupBy { it.league.ifBlank { "Bóng Đá Trực Tiếp" } }
-            .entries
-            .sortedByDescending { it.value.size }
-
-        for ((leagueName, list) in leagueGroups) {
-            cards.add(
-                SourceCardItem(
-                    id = "lg_$leagueName",
-                    title = leagueName,
-                    subtitle = "Danh sách ${list.size} trận đấu thuộc giải $leagueName",
-                    iconText = "🏆",
-                    styleType = 3, // Dark
-                    filterLeague = leagueName
-                )
-            )
-        }
-
-        // 4. Thẻ "+ Thêm link nguồn" ở cuối lưới
+        // Thẻ "+ Thêm nguồn mới" nằm ngay sau danh sách các nguồn đã thêm
         cards.add(
             SourceCardItem(
                 id = "add_new",
                 title = "Thêm nguồn mới",
-                subtitle = "Dán đường dẫn raw feed.json mới để xem thêm kênh và trận đấu",
+                subtitle = "Dán đường dẫn raw JSON mới để thêm kênh và giải đấu vào danh sách",
                 iconText = "+",
                 styleType = 3,
                 isAddAction = true
@@ -213,15 +231,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showMatchListScreen(title: String, filtered: List<MatchCard>) {
+    private fun showMatchListScreen(title: String, matches: List<MatchCard>) {
         isShowingMatches = true
         tvHeaderTitle.text = title
         btnBackSources.visibility = View.VISIBLE
         btnAddSource.visibility = View.GONE
 
-        tvStatus.text = "Hiển thị ${filtered.size} trận đấu • Cập nhật lúc $lastUpdatedText"
+        tvStatus.text = "Cập nhật lúc $lastUpdatedText • ${matches.size} trận đấu"
         rvMainGrid.adapter = matchAdapter
-        matchAdapter.submitMatches(filtered)
+        matchAdapter.submitMatches(matches)
         rvMainGrid.post {
             rvMainGrid.findViewHolderForAdapterPosition(0)?.itemView?.requestFocus()
         }
@@ -232,53 +250,55 @@ class MainActivity : AppCompatActivity() {
             showAddSourceDialog()
             return
         }
-
-        if (item.onlyLive) {
-            val liveList = allMatches.filter { it.status.equals("LIVE", ignoreCase = true) }
-            if (liveList.isEmpty()) {
-                Toast.makeText(this, "Hiện chưa có trận nào đang diễn ra", Toast.LENGTH_SHORT).show()
-                return
-            }
-            showMatchListScreen("Đang Trực Tiếp (${liveList.size} trận)", liveList)
-            return
-        }
-
-        if (!item.filterLeague.isNullOrBlank()) {
-            val byLeague = allMatches.filter { it.league == item.filterLeague }
-            showMatchListScreen(item.filterLeague, byLeague)
-            return
-        }
-
-        // Bấm vào thẻ nguồn chính (ví dụ GaVang33 TV) -> mở toàn bộ trận đấu của nguồn đó
-        if (!item.feedUrl.isNullOrBlank()) {
-            val firstSavedUrl = getSavedSources().firstOrNull()?.second
-            if (item.feedUrl == firstSavedUrl && allMatches.isNotEmpty()) {
-                showMatchListScreen("${item.title} (${allMatches.size} trận)", allMatches)
-            } else {
-                tvStatus.text = "Đang tải nguồn ${item.title}..."
-                lifecycleScope.launch {
-                    val res = repo.loadFromUrlOrAsset(this@MainActivity, item.feedUrl)
-                    res.onSuccess { feed ->
-                        allMatches = feed.matches
-                        lastUpdatedText = feed.updatedAt.ifBlank { feed.title }
-                        showMatchListScreen("${item.title} (${allMatches.size} trận)", allMatches)
-                    }.onFailure {
-                        Toast.makeText(this@MainActivity, "Không tải được link nguồn này", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        }
+        val url = item.feedUrl ?: return
+        openSourceMatches(url, item.title, forceReload = false)
     }
 
     private fun handleSourceCardLongClick(item: SourceCardItem) {
         val url = item.feedUrl ?: return
+        val options = arrayOf("Tải lại dữ liệu mới nhất", "Đổi tên nguồn", "Xóa nguồn này")
+        AlertDialog.Builder(this)
+            .setTitle(item.title)
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> openSourceMatches(url, item.title, forceReload = true)
+                    1 -> showRenameSourceDialog(url, item.title)
+                    2 -> confirmDeleteSource(url, item.title)
+                }
+            }
+            .show()
+    }
+
+    private fun showRenameSourceDialog(url: String, oldName: String) {
+        val et = EditText(this).apply {
+            setText(oldName)
+            setSingleLine(true)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Đổi tên nguồn")
+            .setView(et)
+            .setPositiveButton("Lưu") { _, _ ->
+                val newName = et.text.toString().trim()
+                if (newName.isNotEmpty()) {
+                    val list = getSavedSources().map {
+                        if (it.second == url) newName to url else it
+                    }
+                    saveSources(list)
+                    showSourceManagerScreen()
+                }
+            }
+            .setNegativeButton("Hủy", null)
+            .show()
+    }
+
+    private fun confirmDeleteSource(url: String, title: String) {
         val sources = getSavedSources()
         if (sources.size <= 1) {
-            Toast.makeText(this, "Không thể xóa nguồn mặc định duy nhất", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Cần giữ lại ít nhất 1 nguồn phát", Toast.LENGTH_SHORT).show()
             return
         }
         AlertDialog.Builder(this)
-            .setTitle("Xóa nguồn \"${item.title}\"?")
+            .setTitle("Xóa nguồn \"$title\"?")
             .setPositiveButton("Xóa") { _, _ ->
                 sources.removeAll { it.second == url }
                 saveSources(sources)
@@ -295,7 +315,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val etName = EditText(this).apply {
-            hint = "Tên nguồn (ví dụ: Bóng Đá 2)"
+            hint = "Tên nguồn (ví dụ: Bóng Đá 2, Kênh Thể Thao...)"
             setSingleLine(true)
         }
         val etUrl = EditText(this).apply {
@@ -310,7 +330,7 @@ class MainActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("Thêm link nguồn mới")
             .setView(layout)
-            .setPositiveButton("Lưu & Tải") { _, _ ->
+            .setPositiveButton("Lưu & Mở") { _, _ ->
                 val url = etUrl.text.toString().trim()
                 if (!url.startsWith("http")) {
                     Toast.makeText(this, "Đường dẫn phải bắt đầu bằng http/https", Toast.LENGTH_SHORT).show()
@@ -318,9 +338,10 @@ class MainActivity : AppCompatActivity() {
                 }
                 val name = etName.text.toString().trim().ifBlank { "Nguồn ${getSavedSources().size + 1}" }
                 val sources = getSavedSources()
+                sources.removeAll { it.second == url }
                 sources.add(name to url)
                 saveSources(sources)
-                loadFeedFromUrl(url, name)
+                openSourceMatches(url, name, forceReload = true)
             }
             .setNegativeButton("Hủy", null)
             .show()
