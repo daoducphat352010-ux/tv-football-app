@@ -150,9 +150,9 @@ class StatsActivity : AppCompatActivity() {
             if (mode == "STANDINGS") {
                 val rows = fetchStandings(league)
                 if (rows.isEmpty()) {
-                    tvStatus.text = "Chưa có dữ liệu BXH cho ${league.title} (Kiểm tra kết nối mạng)"
+                    tvStatus.text = "Chưa có dữ liệu bảng xếp hạng cho ${league.title}"
                 } else {
-                    tvStatus.text = "${league.title} •${rows.size} câu lạc bộ"
+                    tvStatus.text = "${league.title} • ${rows.size} câu lạc bộ"
                 }
                 rvContent.adapter = StandingAdapter(rows)
             } else {
@@ -160,7 +160,7 @@ class StatsActivity : AppCompatActivity() {
                 if (fixtures.isEmpty()) {
                     tvStatus.text = "Chưa có dữ liệu lịch thi đấu cho ${league.title}"
                 } else {
-                    tvStatus.text = "${league.title} •${fixtures.size} trận đấu vòng hiện tại"
+                    tvStatus.text = "${league.title} • ${fixtures.size} trận đấu"
                 }
                 rvContent.adapter = FixtureAdapter(fixtures)
             }
@@ -214,4 +214,278 @@ class StatsActivity : AppCompatActivity() {
             }
 
             val rankVal = (statsMap["rank"] ?: statsMap["RK"])?.toIntOrNull() ?: (eIdx + 1)
-            val gdRaw = statsMap["pointDifferential"] ?:
+            val gdRaw = statsMap["pointDifferential"] ?: statsMap["GD"] ?: "0"
+            val gdFormatted = if (!gdRaw.startsWith("-") && !gdRaw.startsWith("+") && gdRaw != "0") {
+                "+$gdRaw"
+            } else gdRaw
+
+            outList.add(
+                StandingRow(
+                    rank = rankVal,
+                    groupName = groupName,
+                    teamName = teamName,
+                    teamLogo = logoUrl,
+                    played = statsMap["gamesPlayed"] ?: statsMap["GP"] ?: "0",
+                    won = statsMap["wins"] ?: statsMap["W"] ?: "0",
+                    drawn = statsMap["ties"] ?: statsMap["D"] ?: "0",
+                    lost = statsMap["losses"] ?: statsMap["L"] ?: "0",
+                    gd = gdFormatted,
+                    points = statsMap["points"] ?: statsMap["P"] ?: "0"
+                )
+            )
+        }
+    }
+
+    private suspend fun fetchStandings(league: LeagueOption): List<StandingRow> {
+        for (slug in league.slugs) {
+            val url = "https://site.api.espn.com/apis/v2/sports/soccer/$slug/standings"
+            val root = fetchJson(url) ?: continue
+            val result = mutableListOf<StandingRow>()
+
+            val children = root.optJSONArray("children")
+            if (children != null) {
+                for (cIdx in 0 until children.length()) {
+                    val child = children.optJSONObject(cIdx) ?: continue
+                    val groupName = child.optString("name", "")
+                    val entries = child.optJSONObject("standings")?.optJSONArray("entries")
+                    if (entries != null) {
+                        parseEntriesArray(entries, groupName, result)
+                    }
+                }
+            }
+
+            if (result.isEmpty()) {
+                val directEntries = root.optJSONObject("standings")?.optJSONArray("entries")
+                if (directEntries != null) {
+                    parseEntriesArray(directEntries, league.title, result)
+                }
+            }
+
+            if (result.isNotEmpty()) return result
+        }
+        return emptyList()
+    }
+
+    private suspend fun fetchFixtures(league: LeagueOption): List<FixtureRow> {
+        val vnTz = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
+        val isoFmtShort = SimpleDateFormat("yyyy-MM-dd'T'HH:mm'Z'", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }
+        val isoFmtFull = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }
+        val outTimeFmt = SimpleDateFormat("HH:mm • dd/MM", Locale.US).apply { timeZone = vnTz }
+
+        for (slug in league.slugs) {
+            val url = "https://site.api.espn.com/apis/site/v2/sports/soccer/$slug/scoreboard"
+            val root = fetchJson(url) ?: continue
+            val events = root.optJSONArray("events") ?: continue
+            val list = mutableListOf<FixtureRow>()
+
+            for (i in 0 until events.length()) {
+                val ev = events.optJSONObject(i) ?: continue
+                val rawDate = ev.optString("date", "")
+                val parsedDate = runCatching { isoFmtShort.parse(rawDate) }.getOrNull()
+                    ?: runCatching { isoFmtFull.parse(rawDate) }.getOrNull()
+                val timeStr = if (parsedDate != null) outTimeFmt.format(parsedDate) else rawDate
+
+                val comps = ev.optJSONArray("competitions") ?: continue
+                if (comps.length() == 0) continue
+                val comp = comps.optJSONObject(0) ?: continue
+
+                val statusObj = comp.optJSONObject("status")?.optJSONObject("type")
+                val state = statusObj?.optString("state", "pre") ?: "pre"
+                val shortDetail = statusObj?.optString("shortDetail", "") ?: ""
+
+                val isLive = state == "in"
+                val isFinished = state == "post"
+                val badgeText = when {
+                    isLive -> shortDetail.ifBlank { "LIVE" }
+                    isFinished -> "KẾT THÚC"
+                    else -> "SẮP ĐÁ"
+                }
+
+                val competitors = comp.optJSONArray("competitors") ?: continue
+                if (competitors.length() < 2) continue
+
+                var homeObj = competitors.optJSONObject(0) ?: continue
+                var awayObj = competitors.optJSONObject(1) ?: continue
+                if (homeObj.optString("homeAway") == "away") {
+                    val tmp = homeObj
+                    homeObj = awayObj
+                    awayObj = tmp
+                }
+
+                val hTeam = homeObj.optJSONObject("team") ?: continue
+                val aTeam = awayObj.optJSONObject("team") ?: continue
+
+                val hName = hTeam.optString("shortDisplayName", hTeam.optString("displayName", "Home"))
+                val aName = aTeam.optString("shortDisplayName", aTeam.optString("displayName", "Away"))
+                val hLogo = hTeam.optString("logo", "")
+                val aLogo = aTeam.optString("logo", "")
+
+                val hScore = homeObj.optString("score", "0")
+                val aScore = awayObj.optString("score", "0")
+                val centerScore = if (isLive || isFinished) "$hScore - $aScore" else "VS"
+
+                list.add(
+                    FixtureRow(
+                        leagueOrRound = league.title,
+                        dateTimeText = timeStr,
+                        statusText = badgeText,
+                        isLive = isLive,
+                        isFinished = isFinished,
+                        homeName = hName,
+                        homeLogo = hLogo,
+                        awayName = aName,
+                        awayLogo = aLogo,
+                        centerScore = centerScore
+                    )
+                )
+            }
+            if (list.isNotEmpty()) return list
+        }
+        return emptyList()
+    }
+
+    inner class LeagueTabAdapter : RecyclerView.Adapter<LeagueTabAdapter.TabVH>() {
+        inner class TabVH(val tv: TextView) : RecyclerView.ViewHolder(tv)
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): TabVH {
+            val tv = LayoutInflater.from(parent.context)
+                .inflate(R.layout.item_league_tab, parent, false) as TextView
+            return TabVH(tv)
+        }
+
+        override fun onBindViewHolder(holder: TabVH, position: Int) {
+            val item = leagues[position]
+            holder.tv.text = item.title
+            val isSelected = position == selectedLeagueIndex
+            holder.tv.setBackgroundResource(
+                if (isSelected) R.drawable.bg_pill_primary else R.drawable.bg_pill_action
+            )
+            holder.tv.setOnClickListener {
+                if (selectedLeagueIndex != position) {
+                    val old = selectedLeagueIndex
+                    selectedLeagueIndex = position
+                    notifyItemChanged(old)
+                    notifyItemChanged(position)
+                    loadSelectedLeagueData()
+                }
+            }
+        }
+
+        override fun getItemCount(): Int = leagues.size
+    }
+
+    inner class StandingAdapter(private val rows: List<StandingRow>) :
+        RecyclerView.Adapter<StandingAdapter.RowVH>() {
+
+        inner class RowVH(v: View) : RecyclerView.ViewHolder(v) {
+            val tvRank: TextView = v.findViewById(R.id.tvRank)
+            val ivLogo: ImageView = v.findViewById(R.id.ivTeamLogo)
+            val tvName: TextView = v.findViewById(R.id.tvTeamName)
+            val tvPlayed: TextView = v.findViewById(R.id.tvPlayed)
+            val tvWon: TextView = v.findViewById(R.id.tvWon)
+            val tvDrawn: TextView = v.findViewById(R.id.tvDrawn)
+            val tvLost: TextView = v.findViewById(R.id.tvLost)
+            val tvGd: TextView = v.findViewById(R.id.tvGoalDiff)
+            val tvPts: TextView = v.findViewById(R.id.tvPoints)
+            var job: Job? = null
+        }
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RowVH {
+            val v = LayoutInflater.from(parent.context)
+                .inflate(R.layout.item_standing_row, parent, false)
+            return RowVH(v)
+        }
+
+        override fun onBindViewHolder(holder: RowVH, position: Int) {
+            val r = rows[position]
+            holder.job?.cancel()
+
+            holder.tvRank.text = r.rank.toString()
+            holder.tvRank.setTextColor(
+                when {
+                    r.rank <= 4 -> Color.parseColor("#38BDF8")
+                    r.rank in 5..6 -> Color.parseColor("#FBBF24")
+                    r.rank >= 18 -> Color.parseColor("#F87171")
+                    else -> Color.WHITE
+                }
+            )
+
+            holder.tvName.text = r.teamName
+            holder.tvPlayed.text = r.played
+            holder.tvWon.text = r.won
+            holder.tvDrawn.text = r.drawn
+            holder.tvLost.text = r.lost
+            holder.tvGd.text = r.gd
+            holder.tvPts.text = r.points
+
+            holder.ivLogo.setImageDrawable(null)
+            holder.job = lifecycleScope.launch {
+                loadLogo(r.teamLogo)?.let { holder.ivLogo.setImageBitmap(it) }
+            }
+        }
+
+        override fun getItemCount(): Int = rows.size
+    }
+
+    inner class FixtureAdapter(private val rows: List<FixtureRow>) :
+        RecyclerView.Adapter<FixtureAdapter.FixVH>() {
+
+        inner class FixVH(v: View) : RecyclerView.ViewHolder(v) {
+            val tvLeague: TextView = v.findViewById(R.id.tvMatchLeague)
+            val tvKickoff: TextView = v.findViewById(R.id.tvMatchKickoff)
+            val tvStatus: TextView = v.findViewById(R.id.tvMatchStatus)
+            val ivHome: ImageView = v.findViewById(R.id.ivHomeLogo)
+            val tvHome: TextView = v.findViewById(R.id.tvHomeName)
+            val tvScore: TextView = v.findViewById(R.id.tvScore)
+            val ivAway: ImageView = v.findViewById(R.id.ivAwayLogo)
+            val tvAway: TextView = v.findViewById(R.id.tvAwayName)
+            val tvBottom: TextView = v.findViewById(R.id.tvStreamCount)
+            var job: Job? = null
+        }
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): FixVH {
+            val v = LayoutInflater.from(parent.context)
+                .inflate(R.layout.item_match, parent, false)
+            return FixVH(v)
+        }
+
+        override fun onBindViewHolder(holder: FixVH, position: Int) {
+            val f = rows[position]
+            holder.job?.cancel()
+
+            holder.tvLeague.text = f.leagueOrRound
+            holder.tvKickoff.text = f.dateTimeText
+            holder.tvStatus.text = f.statusText
+            holder.tvStatus.setBackgroundColor(
+                when {
+                    f.isLive -> Color.parseColor("#DC2626")
+                    f.isFinished -> Color.parseColor("#334155")
+                    else -> Color.parseColor("#0284C7")
+                }
+            )
+
+            holder.tvHome.text = f.homeName
+            holder.tvAway.text = f.awayName
+            holder.tvScore.text = f.centerScore
+            holder.tvBottom.text = if (f.isFinished) "Đã kết thúc" else "Giờ Việt Nam (GMT+7)"
+
+            holder.ivHome.setImageDrawable(null)
+            holder.ivAway.setImageDrawable(null)
+            holder.job = lifecycleScope.launch {
+                loadLogo(f.homeLogo)?.let { holder.ivHome.setImageBitmap(it) }
+                loadLogo(f.awayLogo)?.let { holder.ivAway.setImageBitmap(it) }
+            }
+
+            holder.itemView.setOnFocusChangeListener { v, hasFocus ->
+                val scale = if (hasFocus) 1.03f else 1.0f
+                v.animate().scaleX(scale).scaleY(scale).setDuration(110).start()
+            }
+        }
+
+        override fun getItemCount(): Int = rows.size
+    }
+}
