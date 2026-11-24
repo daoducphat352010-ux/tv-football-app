@@ -26,6 +26,7 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
 
@@ -160,7 +161,7 @@ class StatsActivity : AppCompatActivity() {
                 if (fixtures.isEmpty()) {
                     tvStatus.text = "Chưa có dữ liệu lịch thi đấu cho ${league.title}"
                 } else {
-                    tvStatus.text = "${league.title} • ${fixtures.size} trận đấu"
+                    tvStatus.text = "${league.title} • ${fixtures.size} trận (3 tuần)"
                 }
                 rvContent.adapter = FixtureAdapter(fixtures)
             }
@@ -266,8 +267,90 @@ class StatsActivity : AppCompatActivity() {
         return emptyList()
     }
 
+    private fun parseEventsFromRoot(
+        root: JSONObject,
+        leagueTitle: String,
+        isoFmtShort: SimpleDateFormat,
+        isoFmtFull: SimpleDateFormat,
+        outTimeFmt: SimpleDateFormat,
+        seenKeys: MutableSet<String>,
+        outList: MutableList<FixtureRow>
+    ) {
+        val events = root.optJSONArray("events") ?: return
+        for (i in 0 until events.length()) {
+            val ev = events.optJSONObject(i) ?: continue
+            val eventId = ev.optString("id", "")
+            val rawDate = ev.optString("date", "")
+            val parsedDate = runCatching { isoFmtShort.parse(rawDate) }.getOrNull()
+                ?: runCatching { isoFmtFull.parse(rawDate) }.getOrNull()
+            val timeStr = if (parsedDate != null) outTimeFmt.format(parsedDate) else rawDate
+
+            val comps = ev.optJSONArray("competitions") ?: continue
+            if (comps.length() == 0) continue
+            val comp = comps.optJSONObject(0) ?: continue
+
+            val statusObj = comp.optJSONObject("status")?.optJSONObject("type")
+            val state = statusObj?.optString("state", "pre") ?: "pre"
+            val shortDetail = statusObj?.optString("shortDetail", "") ?: ""
+
+            val isLive = state == "in"
+            val isFinished = state == "post"
+            val badgeText = when {
+                isLive -> shortDetail.ifBlank { "LIVE" }
+                isFinished -> "KẾT THÚC"
+                else -> "SẮP ĐÁ"
+            }
+
+            val competitors = comp.optJSONArray("competitors") ?: continue
+            if (competitors.length() < 2) continue
+
+            var homeObj = competitors.optJSONObject(0) ?: continue
+            var awayObj = competitors.optJSONObject(1) ?: continue
+            if (homeObj.optString("homeAway") == "away") {
+                val tmp = homeObj
+                homeObj = awayObj
+                awayObj = tmp
+            }
+
+            val hTeam = homeObj.optJSONObject("team") ?: continue
+            val aTeam = awayObj.optJSONObject("team") ?: continue
+
+            val hName = hTeam.optString("shortDisplayName", hTeam.optString("displayName", "Home"))
+            val aName = aTeam.optString("shortDisplayName", aTeam.optString("displayName", "Away"))
+            val hLogo = hTeam.optString("logo", "")
+            val aLogo = aTeam.optString("logo", "")
+
+            val uniqueKey = if (eventId.isNotBlank()) eventId else "$hName|$aName|$rawDate"
+            if (!seenKeys.add(uniqueKey)) continue
+
+            val hScore = homeObj.optString("score", "0")
+            val aScore = awayObj.optString("score", "0")
+            val centerScore = if (isLive || isFinished) "$hScore - $aScore" else "VS"
+
+            outList.add(
+                FixtureRow(
+                    leagueOrRound = leagueTitle,
+                    dateTimeText = timeStr,
+                    statusText = badgeText,
+                    isLive = isLive,
+                    isFinished = isFinished,
+                    homeName = hName,
+                    homeLogo = hLogo,
+                    awayName = aName,
+                    awayLogo = aLogo,
+                    centerScore = centerScore
+                )
+            )
+        }
+    }
+
     private suspend fun fetchFixtures(league: LeagueOption): List<FixtureRow> {
         val vnTz = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
+        val dateParamFmt = SimpleDateFormat("yyyyMMdd", Locale.US).apply { timeZone = vnTz }
+        val calStart = Calendar.getInstance(vnTz).apply { add(Calendar.DAY_OF_YEAR, -5) }
+        val calEnd = Calendar.getInstance(vnTz).apply { add(Calendar.DAY_OF_YEAR, 16) }
+        val datesRange = "${dateParamFmt.format(calStart.time)}-${dateParamFmt.format(calEnd.time)}"
+
         val isoFmtShort = SimpleDateFormat("yyyy-MM-dd'T'HH:mm'Z'", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")
         }
@@ -277,72 +360,23 @@ class StatsActivity : AppCompatActivity() {
         val outTimeFmt = SimpleDateFormat("HH:mm • dd/MM", Locale.US).apply { timeZone = vnTz }
 
         for (slug in league.slugs) {
-            val url = "https://site.api.espn.com/apis/site/v2/sports/soccer/$slug/scoreboard"
-            val root = fetchJson(url) ?: continue
-            val events = root.optJSONArray("events") ?: continue
+            val seenKeys = mutableSetOf<String>()
             val list = mutableListOf<FixtureRow>()
 
-            for (i in 0 until events.length()) {
-                val ev = events.optJSONObject(i) ?: continue
-                val rawDate = ev.optString("date", "")
-                val parsedDate = runCatching { isoFmtShort.parse(rawDate) }.getOrNull()
-                    ?: runCatching { isoFmtFull.parse(rawDate) }.getOrNull()
-                val timeStr = if (parsedDate != null) outTimeFmt.format(parsedDate) else rawDate
-
-                val comps = ev.optJSONArray("competitions") ?: continue
-                if (comps.length() == 0) continue
-                val comp = comps.optJSONObject(0) ?: continue
-
-                val statusObj = comp.optJSONObject("status")?.optJSONObject("type")
-                val state = statusObj?.optString("state", "pre") ?: "pre"
-                val shortDetail = statusObj?.optString("shortDetail", "") ?: ""
-
-                val isLive = state == "in"
-                val isFinished = state == "post"
-                val badgeText = when {
-                    isLive -> shortDetail.ifBlank { "LIVE" }
-                    isFinished -> "KẾT THÚC"
-                    else -> "SẮP ĐÁ"
-                }
-
-                val competitors = comp.optJSONArray("competitors") ?: continue
-                if (competitors.length() < 2) continue
-
-                var homeObj = competitors.optJSONObject(0) ?: continue
-                var awayObj = competitors.optJSONObject(1) ?: continue
-                if (homeObj.optString("homeAway") == "away") {
-                    val tmp = homeObj
-                    homeObj = awayObj
-                    awayObj = tmp
-                }
-
-                val hTeam = homeObj.optJSONObject("team") ?: continue
-                val aTeam = awayObj.optJSONObject("team") ?: continue
-
-                val hName = hTeam.optString("shortDisplayName", hTeam.optString("displayName", "Home"))
-                val aName = aTeam.optString("shortDisplayName", aTeam.optString("displayName", "Away"))
-                val hLogo = hTeam.optString("logo", "")
-                val aLogo = aTeam.optString("logo", "")
-
-                val hScore = homeObj.optString("score", "0")
-                val aScore = awayObj.optString("score", "0")
-                val centerScore = if (isLive || isFinished) "$hScore - $aScore" else "VS"
-
-                list.add(
-                    FixtureRow(
-                        leagueOrRound = league.title,
-                        dateTimeText = timeStr,
-                        statusText = badgeText,
-                        isLive = isLive,
-                        isFinished = isFinished,
-                        homeName = hName,
-                        homeLogo = hLogo,
-                        awayName = aName,
-                        awayLogo = aLogo,
-                        centerScore = centerScore
-                    )
-                )
+            // 1. Lấy lịch các trận trong khoảng 3 tuần (5 ngày trước -> 16 ngày sau)
+            val rangeUrl = "https://site.api.espn.com/apis/site/v2/sports/soccer/$slug/scoreboard?dates=$datesRange&limit=150"
+            fetchJson(rangeUrl)?.let {
+                parseEventsFromRoot(it, league.title, isoFmtShort, isoFmtFull, outTimeFmt, seenKeys, list)
             }
+
+            // 2. Bổ sung vòng đấu hiện tại mặc định nếu chưa có trận nào trong khoảng ngày trên
+            if (list.isEmpty()) {
+                val defaultUrl = "https://site.api.espn.com/apis/site/v2/sports/soccer/$slug/scoreboard?limit=150"
+                fetchJson(defaultUrl)?.let {
+                    parseEventsFromRoot(it, league.title, isoFmtShort, isoFmtFull, outTimeFmt, seenKeys, list)
+                }
+            }
+
             if (list.isNotEmpty()) return list
         }
         return emptyList()
