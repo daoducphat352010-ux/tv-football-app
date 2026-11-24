@@ -2,8 +2,11 @@ package com.customplayer
 
 import android.app.AlertDialog
 import android.content.Intent
+import android.graphics.Color
+import android.graphics.Typeface
 import android.os.Bundle
 import android.text.InputType
+import android.view.Gravity
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
@@ -97,7 +100,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Tự động làm mới lại nếu mở lại app từ nền sau hơn 60 giây
         if (System.currentTimeMillis() - lastAutoSyncTimeMs > 60_000L) {
             autoSyncLatestFeed(force = false)
         }
@@ -132,7 +134,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }.onFailure {
                 if (!isShowingMatches) {
-                    tvStatus.text = "Chọn một nguồn bên dưới hoặc bấm + Thêm link"
+                    tvStatus.text = "Chọn một nguồn bên dưới hoặc bấm + Thêm nguồn"
                 } else {
                     tvStatus.text = "Cập nhật lúc $lastUpdatedText • ${allMatches.size} trận đấu"
                 }
@@ -236,10 +238,10 @@ class MainActivity : AppCompatActivity() {
         btnAddSource.visibility = View.VISIBLE
 
         val saved = getSavedSources()
-        tvStatus.text = "Hiện có ${saved.size} nguồn phát • Bấm OK để xem, giữ OK để tùy chỉnh"
+        tvStatus.text = "Hiện có ${saved.size} nguồn phát • Bấm OK để mở, giữ OK để tùy chỉnh"
 
         val cards = mutableListOf<SourceCardItem>()
-        val icons = listOf("⚽", "▶", "📺", "🏆", "🔥")
+        val icons = listOf("⚽", "▶", "📺", "🔥")
 
         saved.forEachIndexed { idx, (name, url) ->
             val style = when (idx) {
@@ -265,6 +267,29 @@ class MainActivity : AppCompatActivity() {
                 )
             )
         }
+
+        // 2 mục tích hợp sẵn: BXH & Lịch thi đấu 9 giải đấu
+        cards.add(
+            SourceCardItem(
+                id = "builtin_standings",
+                title = "Bảng Xếp Hạng",
+                subtitle = "5 giải VĐQG châu Âu, 3 cúp châu Âu & V-League 1 cập nhật trực tiếp",
+                iconText = "🏆",
+                styleType = 4,
+                builtInMode = "STANDINGS"
+            )
+        )
+
+        cards.add(
+            SourceCardItem(
+                id = "builtin_fixtures",
+                title = "Lịch Thi Đấu",
+                subtitle = "Lịch & kết quả 5 giải châu Âu, 3 cúp châu Âu & V-League 1",
+                iconText = "📅",
+                styleType = 5,
+                builtInMode = "FIXTURES"
+            )
+        )
 
         cards.add(
             SourceCardItem(
@@ -302,6 +327,13 @@ class MainActivity : AppCompatActivity() {
     private fun handleSourceCardClick(item: SourceCardItem) {
         if (item.isAddAction) {
             showAddSourceDialog()
+            return
+        }
+        if (!item.builtInMode.isNullOrBlank()) {
+            val intent = Intent(this, StatsActivity::class.java).apply {
+                putExtra("mode", item.builtInMode)
+            }
+            startActivity(intent)
             return
         }
         val url = item.feedUrl ?: return
@@ -407,27 +439,6 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Trận đấu chưa có nguồn phát", Toast.LENGTH_SHORT).show()
             return
         }
-        val labels = match.streams.map { it.label }.toTypedArray()
-        AlertDialog.Builder(this)
-            .setTitle("${match.homeName} vs ${match.awayName}")
-            .setItems(labels) { _, which ->
-                val selected = match.streams[which]
-                val intent = Intent(this, PlayerActivity::class.java).apply {
-                    putExtra("title", "${match.homeName} vs ${match.awayName} - ${selected.label}")
-                    putExtra("url", selected.url)
-                    putExtra("referer", selected.referer ?: "")
-                }
-                startActivity(intent)
-            }
-            .setNegativeButton("Đóng", null)
-            .show()
-    }
-}
-private fun showStreamDialog(match: MatchCard) {
-        if (match.streams.isEmpty()) {
-            Toast.makeText(this, "Trận đấu chưa có nguồn phát", Toast.LENGTH_SHORT).show()
-            return
-        }
 
         val dialog = AlertDialog.Builder(this).create()
         val container = LinearLayout(this).apply {
@@ -438,23 +449,23 @@ private fun showStreamDialog(match: MatchCard) {
 
         val badge = TextView(this).apply {
             text = match.league.uppercase()
-            setTextColor(android.graphics.Color.parseColor("#38BDF8"))
+            setTextColor(Color.parseColor("#38BDF8"))
             textSize = 11f
             letterSpacing = 0.08f
-            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTypeface(null, Typeface.BOLD)
         }
 
         val titleView = TextView(this).apply {
             text = "${match.homeName}  vs  ${match.awayName}"
-            setTextColor(android.graphics.Color.WHITE)
+            setTextColor(Color.WHITE)
             textSize = 20f
-            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTypeface(null, Typeface.BOLD)
             setPadding(0, 6, 0, 4)
         }
 
         val subView = TextView(this).apply {
             text = "Chọn phòng bình luận viên để bắt đầu phát trực tiếp"
-            setTextColor(android.graphics.Color.parseColor("#94A3B8"))
+            setTextColor(Color.parseColor("#94A3B8"))
             textSize = 13f
             setPadding(0, 0, 0, 20)
         }
@@ -468,8 +479,8 @@ private fun showStreamDialog(match: MatchCard) {
                 text = "🎙   ${stream.label}"
                 isAllCaps = false
                 textSize = 15f
-                setTextColor(android.graphics.Color.WHITE)
-                gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
+                setTextColor(Color.WHITE)
+                gravity = Gravity.START or Gravity.CENTER_VERTICAL
                 setPadding(28, 18, 28, 18)
                 setBackgroundResource(R.drawable.bg_pill_action)
                 stateListAnimator = null
@@ -501,3 +512,4 @@ private fun showStreamDialog(match: MatchCard) {
         dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
         dialog.show()
     }
+}
