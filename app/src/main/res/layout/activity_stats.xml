@@ -4,8 +4,8 @@
     android:layout_height="match_parent"
     android:background="@drawable/bg_main_stadium"
     android:orientation="vertical"
-    android:paddingStart="32dp"
-    android:paddingEnd="32dp"
+    android:paddingStart="28dp"
+    android:paddingEnd="28dp"
     android:paddingTop="18dp"
     android:paddingBottom="12dp">
 
@@ -89,12 +89,12 @@
         android:background="#152036"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="14dp"
-        android:paddingEnd="14dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
         android:visibility="gone">
 
         <TextView
-            android:layout_width="42dp"
+            android:layout_width="40dp"
             android:layout_height="wrap_content"
             android:gravity="center"
             android:text="#"
@@ -105,7 +105,7 @@
         <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
+            android:layout_marginStart="8dp"
             android:layout_weight="1"
             android:text="CÂU LẠC BỘ"
             android:textColor="#94A3B8"
@@ -113,52 +113,70 @@
             android:textStyle="bold" />
 
         <TextView
-            android:layout_width="52dp"
+            android:layout_width="46dp"
             android:layout_height="wrap_content"
             android:gravity="center"
             android:text="TRẬN"
             android:textColor="#94A3B8"
-            android:textSize="12sp"
+            android:textSize="11.5sp"
             android:textStyle="bold" />
 
         <TextView
-            android:layout_width="46dp"
+            android:layout_width="38dp"
             android:layout_height="wrap_content"
             android:gravity="center"
             android:text="T"
             android:textColor="#94A3B8"
-            android:textSize="12sp"
+            android:textSize="11.5sp"
             android:textStyle="bold" />
 
         <TextView
-            android:layout_width="46dp"
+            android:layout_width="38dp"
             android:layout_height="wrap_content"
             android:gravity="center"
             android:text="H"
             android:textColor="#94A3B8"
-            android:textSize="12sp"
+            android:textSize="11.5sp"
             android:textStyle="bold" />
 
         <TextView
-            android:layout_width="46dp"
+            android:layout_width="38dp"
             android:layout_height="wrap_content"
             android:gravity="center"
             android:text="B"
             android:textColor="#94A3B8"
-            android:textSize="12sp"
+            android:textSize="11.5sp"
             android:textStyle="bold" />
 
         <TextView
-            android:layout_width="56dp"
+            android:layout_width="44dp"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="BT"
+            android:textColor="#4ADE80"
+            android:textSize="11.5sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="44dp"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="BB"
+            android:textColor="#F87171"
+            android:textSize="11.5sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="50dp"
             android:layout_height="wrap_content"
             android:gravity="center"
             android:text="HS"
             android:textColor="#94A3B8"
-            android:textSize="12sp"
+            android:textSize="11.5sp"
             android:textStyle="bold" />
 
         <TextView
-            android:layout_width="64dp"
+            android:layout_width="56dp"
             android:layout_height="wrap_content"
             android:gravity="center"
             android:text="ĐIỂM"
