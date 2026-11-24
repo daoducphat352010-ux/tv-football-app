@@ -9,7 +9,7 @@
     android:paddingTop="18dp"
     android:paddingBottom="12dp">
 
-    <!-- Thanh tiêu đề trên cùng giống ảnh mẫu -->
+    <!-- Thanh tiêu đề trên cùng -->
     <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="48dp"
@@ -37,6 +37,9 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_centerInParent="true"
+            android:ellipsize="end"
+            android:maxWidth="420dp"
+            android:singleLine="true"
             android:text="Quản lý nguồn"
             android:textColor="#FFFFFF"
             android:textSize="24sp"
@@ -57,9 +60,26 @@
             android:textColor="#FFFFFF"
             android:textSize="13sp"
             android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/btnReloadMatches"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_alignParentEnd="true"
+            android:layout_centerVertical="true"
+            android:backgroundTint="#0284C7"
+            android:focusable="true"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:text="↻ Làm mới"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
     </RelativeLayout>
 
-    <!-- Dòng trạng thái cập nhật nhỏ gọn -->
+    <!-- Dòng trạng thái cập nhật -->
     <TextView
         android:id="@+id/tvStatus"
         android:layout_width="match_parent"
@@ -67,11 +87,11 @@
         android:layout_marginBottom="12dp"
         android:gravity="center"
         android:singleLine="true"
-        android:text="Đang tải dữ liệu trận đấu..."
+        android:text="Đang đồng bộ dữ liệu trận đấu..."
         android:textColor="#94A3B8"
         android:textSize="12sp" />
 
-    <!-- Lưới 3 cột hiển thị Nguồn / Danh mục hoặc Danh sách trận đấu -->
+    <!-- Lưới 3 cột hiển thị Nguồn hoặc Danh sách trận đấu -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rvMainGrid"
         android:layout_width="match_parent"
