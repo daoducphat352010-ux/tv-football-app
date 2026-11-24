@@ -3,6 +3,9 @@ package com.customplayer
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.StateListDrawable
 import android.os.Bundle
 import android.util.LruCache
 import android.view.LayoutInflater
@@ -116,6 +119,63 @@ class StatsActivity : AppCompatActivity() {
         }
     }
 
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    private fun createFocusCardDrawable(
+        radiusDp: Int = 16,
+        normalStart: String = "#11192C",
+        normalEnd: String = "#0B1120",
+        focusStart: String = "#182947",
+        focusEnd: String = "#0F172A",
+        strokeNormal: String = "#1E293B",
+        strokeFocus: String = "#38BDF8"
+    ): Drawable {
+        val focused = GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(Color.parseColor(focusStart), Color.parseColor(focusEnd))
+        ).apply {
+            cornerRadius = dp(radiusDp).toFloat()
+            setStroke(dp(2), Color.parseColor(strokeFocus))
+        }
+
+        val normal = GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(Color.parseColor(normalStart), Color.parseColor(normalEnd))
+        ).apply {
+            cornerRadius = dp(radiusDp).toFloat()
+            setStroke(dp(1), Color.parseColor(strokeNormal))
+        }
+
+        return StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_focused), focused)
+            addState(intArrayOf(android.R.attr.state_selected), focused)
+            addState(intArrayOf(), normal)
+        }
+    }
+
+    private fun createCrestCircleDrawable(): Drawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(Color.parseColor("#1A253C"))
+            setStroke(dp(1), Color.parseColor("#2B3B5C"))
+        }
+    }
+
+    private fun createBadgeDrawable(
+        fillColor: String,
+        borderColor: String? = null,
+        radiusDp: Int = 8
+    ): Drawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(radiusDp).toFloat()
+            setColor(Color.parseColor(fillColor))
+            if (borderColor != null) {
+                setStroke(dp(1), Color.parseColor(borderColor))
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_stats)
@@ -130,8 +190,15 @@ class StatsActivity : AppCompatActivity() {
         layoutStandingHeader = findViewById(R.id.layoutStandingHeader)
         rvContent = findViewById(R.id.rvStatsContent)
 
+        (window.decorView.findViewById<View>(android.R.id.content) as? ViewGroup)
+            ?.getChildAt(0)
+            ?.setBackgroundColor(Color.parseColor("#070B14"))
+
         tvTitle.text = if (mode == "STANDINGS") "Bảng Xếp Hạng" else "Lịch Thi Đấu & Kết Quả"
         layoutStandingHeader.visibility = if (mode == "STANDINGS") View.VISIBLE else View.GONE
+        if (mode == "STANDINGS") {
+            layoutStandingHeader.background = createBadgeDrawable("#11192C", "#1E293B", 10)
+        }
 
         btnBack.setOnClickListener { finish() }
         btnReload.setOnClickListener { loadSelectedLeagueData() }
@@ -162,7 +229,7 @@ class StatsActivity : AppCompatActivity() {
                 tvStatus.text = if (rows.isEmpty()) {
                     "Chưa có dữ liệu bảng xếp hạng cho ${league.title}"
                 } else {
-                    "${league.title} • ${rows.size} câu lạc bộ"
+                    "${league.title} • ${rows.size} CLB   |   ■ Top 4: C1   ■ Top 5-6: C2/C3   ■ Cuối bảng: Xuống hạng"
                 }
                 rvContent.adapter = StandingAdapter(rows)
             } else {
@@ -603,9 +670,27 @@ class StatsActivity : AppCompatActivity() {
             val item = leagues[position]
             holder.tv.text = item.title
             val isSelected = position == selectedLeagueIndex
-            holder.tv.setBackgroundResource(
-                if (isSelected) R.drawable.bg_pill_primary else R.drawable.bg_pill_action
-            )
+            holder.tv.background = if (isSelected) {
+                createFocusCardDrawable(
+                    radiusDp = 999,
+                    normalStart = "#0284C7",
+                    normalEnd = "#1D4ED8",
+                    focusStart = "#0EA5E9",
+                    focusEnd = "#2563EB",
+                    strokeNormal = "#38BDF8",
+                    strokeFocus = "#FFFFFF"
+                )
+            } else {
+                createFocusCardDrawable(
+                    radiusDp = 999,
+                    normalStart = "#11192C",
+                    normalEnd = "#0E1526",
+                    focusStart = "#1E293B",
+                    focusEnd = "#17223B",
+                    strokeNormal = "#25334D",
+                    strokeFocus = "#38BDF8"
+                )
+            }
             holder.tv.setOnClickListener {
                 if (selectedLeagueIndex != position) {
                     val old = selectedLeagueIndex
@@ -629,6 +714,11 @@ class StatsActivity : AppCompatActivity() {
         }
 
         inner class RowVH(v: View) : RecyclerView.ViewHolder(v) {
+            val zoneBar: View = View(v.context).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(4), dp(26)).apply {
+                    marginEnd = dp(4)
+                }
+            }
             val tvRank: TextView = v.findViewById(R.id.tvRank)
             val ivLogo: ImageView = v.findViewById(R.id.ivTeamLogo)
             val tvName: TextView = v.findViewById(R.id.tvTeamName)
@@ -641,6 +731,23 @@ class StatsActivity : AppCompatActivity() {
             val tvGd: TextView = v.findViewById(R.id.tvGoalDiff)
             val tvPts: TextView = v.findViewById(R.id.tvPoints)
             var job: Job? = null
+
+            init {
+                if (v is LinearLayout) {
+                    v.addView(zoneBar, 0)
+                }
+                v.isFocusable = true
+                v.isClickable = true
+                v.background = createFocusCardDrawable(
+                    radiusDp = 10,
+                    normalStart = "#0E1526",
+                    normalEnd = "#0B1120",
+                    focusStart = "#1E3152",
+                    focusEnd = "#15233D",
+                    strokeNormal = "#182238",
+                    strokeFocus = "#38BDF8"
+                )
+            }
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RowVH {
@@ -653,25 +760,37 @@ class StatsActivity : AppCompatActivity() {
             val r = rows[position]
             holder.job?.cancel()
 
+            val totalTeams = rows.size
+            val zoneColor = when {
+                r.rank <= 4 -> Color.parseColor("#38BDF8")
+                r.rank in 5..6 -> Color.parseColor("#F59E0B")
+                totalTeams >= 18 && r.rank >= totalTeams - 2 -> Color.parseColor("#EF4444")
+                else -> Color.TRANSPARENT
+            }
+            holder.zoneBar.setBackgroundColor(zoneColor)
             holder.tvRank.text = r.rank.toString()
-            holder.tvRank.setTextColor(
-                when {
-                    r.rank <= 4 -> Color.parseColor("#38BDF8")
-                    r.rank in 5..6 -> Color.parseColor("#FBBF24")
-                    r.rank >= 18 -> Color.parseColor("#F87171")
-                    else -> Color.WHITE
-                }
-            )
+            holder.tvRank.setTextColor(if (zoneColor != Color.TRANSPARENT) zoneColor else Color.WHITE)
 
             holder.tvName.text = r.teamName
             holder.tvPlayed.text = r.played
             holder.tvWon.text = r.won
+            holder.tvWon.setTextColor(Color.parseColor("#4ADE80"))
             holder.tvDrawn.text = r.drawn
             holder.tvLost.text = r.lost
+            holder.tvLost.setTextColor(Color.parseColor("#F87171"))
             holder.tvGf?.text = r.goalsFor
             holder.tvGa?.text = r.goalsAgainst
+
             holder.tvGd.text = r.gd
+            holder.tvGd.setTextColor(
+                when {
+                    r.gd.startsWith("+") -> Color.parseColor("#4ADE80")
+                    r.gd.startsWith("-") -> Color.parseColor("#F87171")
+                    else -> Color.parseColor("#E2E8F0")
+                }
+            )
             holder.tvPts.text = r.points
+            holder.tvPts.setTextColor(Color.parseColor("#38BDF8"))
 
             holder.ivLogo.setImageDrawable(null)
             holder.job = lifecycleScope.launch {
@@ -696,6 +815,16 @@ class StatsActivity : AppCompatActivity() {
             val tvAway: TextView = v.findViewById(R.id.tvAwayName)
             val tvBottom: TextView = v.findViewById(R.id.tvStreamCount)
             var job: Job? = null
+
+            init {
+                v.background = createFocusCardDrawable()
+                ivHome.background = createCrestCircleDrawable()
+                ivHome.setPadding(dp(6), dp(6), dp(6), dp(6))
+                ivAway.background = createCrestCircleDrawable()
+                ivAway.setPadding(dp(6), dp(6), dp(6), dp(6))
+                tvScore.background = createBadgeDrawable("#1E293B", "#334155", 10)
+                tvScore.setPadding(dp(10), dp(4), dp(10), dp(4))
+            }
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): FixVH {
@@ -710,18 +839,23 @@ class StatsActivity : AppCompatActivity() {
 
             holder.tvLeague.text = f.leagueOrRound
             holder.tvKickoff.text = f.dateTimeText
-            holder.tvStatus.text = f.statusText
-            holder.tvStatus.setBackgroundColor(
+            holder.tvKickoff.setTextColor(Color.parseColor("#38BDF8"))
+            holder.tvStatus.text = if (f.isLive) "● ${f.statusText}" else f.statusText
+            holder.tvStatus.background = createBadgeDrawable(
                 when {
-                    f.isLive -> Color.parseColor("#DC2626")
-                    f.isFinished -> Color.parseColor("#334155")
-                    else -> Color.parseColor("#0284C7")
-                }
+                    f.isLive -> "#EF4444"
+                    f.isFinished -> "#334155"
+                    else -> "#0284C7"
+                },
+                radiusDp = 6
             )
 
             holder.tvHome.text = f.homeName
             holder.tvAway.text = f.awayName
             holder.tvScore.text = f.centerScore
+            holder.tvScore.setTextColor(
+                if (f.isLive) Color.parseColor("#F87171") else Color.parseColor("#F8FAFC")
+            )
             holder.tvBottom.text = if (f.isFinished) "Đã kết thúc" else "Giờ Việt Nam (GMT+7)"
 
             holder.ivHome.setImageDrawable(null)
@@ -732,8 +866,8 @@ class StatsActivity : AppCompatActivity() {
             }
 
             holder.itemView.setOnFocusChangeListener { v, hasFocus ->
-                val scale = if (hasFocus) 1.03f else 1.0f
-                v.animate().scaleX(scale).scaleY(scale).setDuration(110).start()
+                val scale = if (hasFocus) 1.035f else 1.0f
+                v.animate().scaleX(scale).scaleY(scale).setDuration(120).start()
             }
         }
 
