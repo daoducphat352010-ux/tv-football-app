@@ -35,7 +35,7 @@ data class LeagueOption(
     val title: String,
     val espnSlugs: List<String>,
     val footballDataCode: String? = null,
-    val sportsDbLeagueId: String? = null
+    val sportsDbLeagueIds: List<String> = emptyList()
 )
 
 data class StandingRow(
@@ -80,19 +80,17 @@ class StatsActivity : AppCompatActivity() {
     private var mode: String = "STANDINGS"
     private var selectedLeagueIndex: Int = 0
 
-    // Tùy chọn: điền API key miễn phí từ football-data.org nếu muốn ưu tiên thêm cho các giải hỗ trợ
     private val footballDataApiKey: String = "8ae213ca347e4eae893ed3f3df740efd"
 
     private val leagues = listOf(
-        LeagueOption("Ngoại Hạng Anh", listOf("eng.1"), footballDataCode = "PL", sportsDbLeagueId = "4328"),
-        LeagueOption("La Liga", listOf("esp.1"), footballDataCode = "PD", sportsDbLeagueId = "4335"),
-        LeagueOption("Serie A", listOf("ita.1"), footballDataCode = "SA", sportsDbLeagueId = "4332"),
-        LeagueOption("Bundesliga", listOf("ger.1"), footballDataCode = "BL1", sportsDbLeagueId = "4331"),
-        LeagueOption("Ligue 1", listOf("fra.1"), footballDataCode = "FL1", sportsDbLeagueId = "4334"),
-        LeagueOption("Champions League", listOf("uefa.champions"), footballDataCode = "CL", sportsDbLeagueId = "4480"),
-        LeagueOption("Europa League", listOf("uefa.europa"), sportsDbLeagueId = "4481"),
-        LeagueOption("Conference League", listOf("uefa.europa.conf")),
-        LeagueOption("V-League 1", listOf("vnm.1", "vie.1"), sportsDbLeagueId = "4929")
+        LeagueOption("Ngoại Hạng Anh", listOf("eng.1"), footballDataCode = "PL", sportsDbLeagueIds = listOf("4328")),
+        LeagueOption("La Liga", listOf("esp.1"), footballDataCode = "PD", sportsDbLeagueIds = listOf("4335")),
+        LeagueOption("Serie A", listOf("ita.1"), footballDataCode = "SA", sportsDbLeagueIds = listOf("4332")),
+        LeagueOption("Bundesliga", listOf("ger.1"), footballDataCode = "BL1", sportsDbLeagueIds = listOf("4331")),
+        LeagueOption("Ligue 1", listOf("fra.1"), footballDataCode = "FL1", sportsDbLeagueIds = listOf("4334")),
+        LeagueOption("Champions League", listOf("uefa.champions"), footballDataCode = "CL", sportsDbLeagueIds = listOf("4480")),
+        LeagueOption("Europa League", listOf("uefa.europa"), sportsDbLeagueIds = listOf("4481")),
+        LeagueOption("Conference League", listOf("uefa.europa.conf"))
     )
 
     companion object {
@@ -102,7 +100,8 @@ class StatsActivity : AppCompatActivity() {
             if (url.isBlank()) return@withContext null
             logoCache.get(url)?.let { return@withContext it }
             runCatching {
-                val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                val fullUrl = if (url.startsWith("//")) "https:$url" else url
+                val conn = (URL(fullUrl).openConnection() as HttpURLConnection).apply {
                     connectTimeout = 8000
                     readTimeout = 8000
                     instanceFollowRedirects = true
@@ -347,35 +346,38 @@ class StatsActivity : AppCompatActivity() {
         return result
     }
 
-    private suspend fun fetchSportsDbStandings(leagueId: String): List<StandingRow> {
-        val url = "https://www.thesportsdb.com/api/v1/json/3/lookuptable.php?l=$leagueId"
-        val root = fetchJson(url) ?: return emptyList()
-        val tableArr = root.optJSONArray("table") ?: return emptyList()
+    private suspend fun fetchSportsDbStandings(leagueIds: List<String>): List<StandingRow> {
+        for (leagueId in leagueIds) {
+            val url = "https://www.thesportsdb.com/api/v1/json/3/lookuptable.php?l=$leagueId"
+            val root = fetchJson(url) ?: continue
+            val tableArr = root.optJSONArray("table") ?: continue
 
-        val result = mutableListOf<StandingRow>()
-        for (i in 0 until tableArr.length()) {
-            val item = tableArr.optJSONObject(i) ?: continue
-            val gf = item.optString("intGoalsFor", "0")
-            val ga = item.optString("intGoalsAgainst", "0")
-            val gd = item.optString("intGoalDifference", "0")
-            result.add(
-                StandingRow(
-                    rank = item.optString("intRank", "${i + 1}").toIntOrNull() ?: (i + 1),
-                    groupName = item.optString("strGroup", ""),
-                    teamName = item.optString("strTeam", "Đội bóng"),
-                    teamLogo = item.optString("strBadge", ""),
-                    played = item.optString("intPlayed", "0"),
-                    won = item.optString("intWin", "0"),
-                    drawn = item.optString("intDraw", "0"),
-                    lost = item.optString("intLoss", "0"),
-                    goalsFor = gf,
-                    goalsAgainst = ga,
-                    gd = formatGoalDiff(gd, gf, ga),
-                    points = item.optString("intPoints", "0")
+            val result = mutableListOf<StandingRow>()
+            for (i in 0 until tableArr.length()) {
+                val item = tableArr.optJSONObject(i) ?: continue
+                val gf = item.optString("intGoalsFor", "0")
+                val ga = item.optString("intGoalsAgainst", "0")
+                val gd = item.optString("intGoalDifference", "0")
+                result.add(
+                    StandingRow(
+                        rank = item.optString("intRank", "${i + 1}").toIntOrNull() ?: (i + 1),
+                        groupName = item.optString("strGroup", ""),
+                        teamName = item.optString("strTeam", "Đội bóng"),
+                        teamLogo = item.optString("strBadge", ""),
+                        played = item.optString("intPlayed", "0"),
+                        won = item.optString("intWin", "0"),
+                        drawn = item.optString("intDraw", "0"),
+                        lost = item.optString("intLoss", "0"),
+                        goalsFor = gf,
+                        goalsAgainst = ga,
+                        gd = formatGoalDiff(gd, gf, ga),
+                        points = item.optString("intPoints", "0")
+                    )
                 )
-            )
+            }
+            if (result.isNotEmpty()) return result
         }
-        return result
+        return emptyList()
     }
 
     private suspend fun fetchStandingsMultiSource(league: LeagueOption): List<StandingRow> {
@@ -386,8 +388,8 @@ class StatsActivity : AppCompatActivity() {
         val espnRows = fetchEspnStandings(league)
         if (espnRows.isNotEmpty()) return espnRows
 
-        if (league.sportsDbLeagueId != null) {
-            val sdbRows = fetchSportsDbStandings(league.sportsDbLeagueId)
+        if (league.sportsDbLeagueIds.isNotEmpty()) {
+            val sdbRows = fetchSportsDbStandings(league.sportsDbLeagueIds)
             if (sdbRows.isNotEmpty()) return sdbRows
         }
         return emptyList()
@@ -486,7 +488,7 @@ class StatsActivity : AppCompatActivity() {
         }
     }
 
-    private suspend fun parseSportsDbEventsArray(
+    private fun parseSportsDbEventsArray(
         arr: JSONArray?,
         leagueTitle: String,
         outTimeFmt: SimpleDateFormat,
@@ -556,7 +558,6 @@ class StatsActivity : AppCompatActivity() {
             val seenKeys = mutableSetOf<String>()
             val list = mutableListOf<FixtureRow>()
 
-            // 1. Lấy từ ESPN (vòng mặc định + khoảng 3 tuần: -7 ngày đến +14 ngày)
             for (slug in league.espnSlugs) {
                 val defaultUrl = "https://site.api.espn.com/apis/site/v2/sports/soccer/$slug/scoreboard?limit=150"
                 fetchJson(defaultUrl)?.let {
@@ -574,13 +575,16 @@ class StatsActivity : AppCompatActivity() {
                 if (list.isNotEmpty()) break
             }
 
-            // 2. Bổ sung thêm các trận sắp đá & kết quả gần nhất từ TheSportsDB nếu có ID giải
-            if (league.sportsDbLeagueId != null) {
-                val nextRoot = fetchJson("https://www.thesportsdb.com/api/v1/json/3/eventsnextleague.php?id=${league.sportsDbLeagueId}")
-                parseSportsDbEventsArray(nextRoot?.optJSONArray("events"), league.title, outTimeFmt, seenKeys, list)
+            if (league.sportsDbLeagueIds.isNotEmpty()) {
+                for (leagueId in league.sportsDbLeagueIds) {
+                    val nextRoot = fetchJson("https://www.thesportsdb.com/api/v1/json/3/eventsnextleague.php?id=$leagueId")
+                    parseSportsDbEventsArray(nextRoot?.optJSONArray("events"), league.title, outTimeFmt, seenKeys, list)
 
-                val pastRoot = fetchJson("https://www.thesportsdb.com/api/v1/json/3/eventspastleague.php?id=${league.sportsDbLeagueId}")
-                parseSportsDbEventsArray(pastRoot?.optJSONArray("events"), league.title, outTimeFmt, seenKeys, list)
+                    val pastRoot = fetchJson("https://www.thesportsdb.com/api/v1/json/3/eventspastleague.php?id=$leagueId")
+                    parseSportsDbEventsArray(pastRoot?.optJSONArray("events"), league.title, outTimeFmt, seenKeys, list)
+
+                    if (list.isNotEmpty()) break
+                }
             }
 
             list.sortedBy { it.epochMillis }
