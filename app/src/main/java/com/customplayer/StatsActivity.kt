@@ -397,7 +397,7 @@ class StatsActivity : AppCompatActivity() {
             holder.tvDrawn.text = r.drawn
             holder.tvLost.text = r.lost
             holder.tvGd.text = r.gd
-            holder.tvPoints.text = r.points
+            holder.tvPts.text = r.points
 
             holder.ivLogo.setImageDrawable(null)
             holder.job = lifecycleScope.launch {
