@@ -421,7 +421,7 @@ class StatsActivity : AppCompatActivity() {
         override fun getItemCount(): Int = leagues.size
     }
 
-    inner class StandingAdapter(private val rows: List<StandingRow>) :
+inner class StandingAdapter(private val rows: List<StandingRow>) :
         RecyclerView.Adapter<StandingAdapter.RowVH>() {
 
         inner class RowVH(v: View) : RecyclerView.ViewHolder(v) {
@@ -432,8 +432,12 @@ class StatsActivity : AppCompatActivity() {
             val tvWon: TextView = v.findViewById(R.id.tvWon)
             val tvDrawn: TextView = v.findViewById(R.id.tvDrawn)
             val tvLost: TextView = v.findViewById(R.id.tvLost)
-            val tvGf: TextView = v.findViewById(R.id.tvGoalsFor)
-            val tvGa: TextView = v.findViewById(R.id.tvGoalsAgainst)
+            val tvGf: TextView? = v.findViewById(
+                v.resources.getIdentifier("tvGoalsFor", "id", v.context.packageName)
+            )
+            val tvGa: TextView? = v.findViewById(
+                v.resources.getIdentifier("tvGoalsAgainst", "id", v.context.packageName)
+            )
             val tvGd: TextView = v.findViewById(R.id.tvGoalDiff)
             val tvPts: TextView = v.findViewById(R.id.tvPoints)
             var job: Job? = null
@@ -464,8 +468,8 @@ class StatsActivity : AppCompatActivity() {
             holder.tvWon.text = r.won
             holder.tvDrawn.text = r.drawn
             holder.tvLost.text = r.lost
-            holder.tvGf.text = r.goalsFor
-            holder.tvGa.text = r.goalsAgainst
+            holder.tvGf?.text = r.goalsFor
+            holder.tvGa?.text = r.goalsAgainst
             holder.tvGd.text = r.gd
             holder.tvPts.text = r.points
 
