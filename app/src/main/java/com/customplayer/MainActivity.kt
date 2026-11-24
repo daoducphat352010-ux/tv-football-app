@@ -423,3 +423,81 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 }
+private fun showStreamDialog(match: MatchCard) {
+        if (match.streams.isEmpty()) {
+            Toast.makeText(this, "Trận đấu chưa có nguồn phát", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val dialog = AlertDialog.Builder(this).create()
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.drawable.bg_dialog_dark)
+            setPadding(44, 34, 44, 30)
+        }
+
+        val badge = TextView(this).apply {
+            text = match.league.uppercase()
+            setTextColor(android.graphics.Color.parseColor("#38BDF8"))
+            textSize = 11f
+            letterSpacing = 0.08f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+        }
+
+        val titleView = TextView(this).apply {
+            text = "${match.homeName}  vs  ${match.awayName}"
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 20f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setPadding(0, 6, 0, 4)
+        }
+
+        val subView = TextView(this).apply {
+            text = "Chọn phòng bình luận viên để bắt đầu phát trực tiếp"
+            setTextColor(android.graphics.Color.parseColor("#94A3B8"))
+            textSize = 13f
+            setPadding(0, 0, 0, 20)
+        }
+
+        container.addView(badge)
+        container.addView(titleView)
+        container.addView(subView)
+
+        match.streams.forEachIndexed { idx, stream ->
+            val btn = Button(this).apply {
+                text = "🎙   ${stream.label}"
+                isAllCaps = false
+                textSize = 15f
+                setTextColor(android.graphics.Color.WHITE)
+                gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
+                setPadding(28, 18, 28, 18)
+                setBackgroundResource(R.drawable.bg_pill_action)
+                stateListAnimator = null
+                isFocusable = true
+
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = 12
+                }
+                layoutParams = lp
+
+                setOnClickListener {
+                    dialog.dismiss()
+                    val intent = Intent(this@MainActivity, PlayerActivity::class.java).apply {
+                        putExtra("title", "${match.homeName} vs ${match.awayName} • ${stream.label}")
+                        putExtra("url", stream.url)
+                        putExtra("referer", stream.referer ?: "")
+                    }
+                    startActivity(intent)
+                }
+            }
+            container.addView(btn)
+            if (idx == 0) btn.post { btn.requestFocus() }
+        }
+
+        dialog.setView(container)
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.show()
+    }
