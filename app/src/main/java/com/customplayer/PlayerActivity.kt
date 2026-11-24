@@ -40,7 +40,7 @@ class PlayerActivity : AppCompatActivity() {
 
         val title = intent.getStringExtra("title") ?: "Trực Tiếp Bóng Đá"
         val rawUrl = intent.getStringExtra("url").orEmpty().trim()
-        val referer = intent.getStringExtra("referer").orEmpty().trim().ifBlank { "https://gavang33.gg/" }
+        val referer = intent.getStringExtra("referer").orEmpty().trim().ifBlank { "https://gavang33.live/" }
 
         val root = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
@@ -140,7 +140,7 @@ class PlayerActivity : AppCompatActivity() {
         val headers = mutableMapOf(
             "User-Agent" to tvUserAgent,
             "Referer" to referer,
-            "Origin" to "https://gavang33.gg"
+            "Origin" to "https://gavang33.live"
         )
 
         vv.setVideoURI(Uri.parse(m3u8Url), headers)
@@ -220,7 +220,7 @@ class PlayerActivity : AppCompatActivity() {
             }
         }
         snifferWebView = wv
-        wv.loadUrl(roomUrl, mapOf("Referer" to "https://gavang33.gg/"))
+        wv.loadUrl(roomUrl, mapOf("Referer" to "https://gavang33.live/"))
     }
 
     private fun destroySniffer() {
