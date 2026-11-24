@@ -89,7 +89,7 @@ class MainActivity : AppCompatActivity() {
             setHintTextColor(Color.parseColor("#64748B"))
             setBackgroundColor(Color.parseColor("#1E293B"))
             setPadding(16, 12, 16, 12)
-            singleLine = true
+            isSingleLine = true
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
 
