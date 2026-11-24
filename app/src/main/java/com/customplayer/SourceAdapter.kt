@@ -12,11 +12,12 @@ data class SourceCardItem(
     val title: String,
     val subtitle: String,
     val iconText: String,
-    val styleType: Int, // 0: Mint, 1: Orange, 2: Red, 3: Dark
+    val styleType: Int, // 0: Mint, 1: Orange, 2: Red, 3: Dark, 4: Blue, 5: Purple
     val filterLeague: String? = null,
     val onlyLive: Boolean = false,
     val feedUrl: String? = null,
-    val isAddAction: Boolean = false
+    val isAddAction: Boolean = false,
+    val builtInMode: String? = null
 )
 
 class SourceAdapter(
@@ -47,6 +48,8 @@ class SourceAdapter(
             0 -> R.drawable.bg_source_mint
             1 -> R.drawable.bg_source_orange
             2 -> R.drawable.bg_source_red
+            4 -> R.drawable.bg_source_blue
+            5 -> R.drawable.bg_source_purple
             else -> R.drawable.bg_source_dark
         }
         holder.container.setBackgroundResource(bgRes)
