@@ -26,6 +26,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var btnBackSources: Button
     private lateinit var btnAddSource: Button
+    private lateinit var btnReloadMatches: Button
     private lateinit var tvHeaderTitle: TextView
     private lateinit var tvStatus: TextView
     private lateinit var rvMainGrid: RecyclerView
@@ -34,9 +35,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var matchAdapter: MatchAdapter
 
     private var activeSourceUrl: String = ""
+    private var activeSourceTitle: String = "GaVang33 TV"
     private var allMatches: List<MatchCard> = emptyList()
     private var lastUpdatedText: String = ""
     private var isShowingMatches: Boolean = false
+    private var lastAutoSyncTimeMs: Long = 0L
 
     private val defaultFeedUrl =
         "https://raw.githubusercontent.com/daoducphat352010-ux/bongda-tv/refs/heads/main/feed.json"
@@ -47,6 +50,7 @@ class MainActivity : AppCompatActivity() {
 
         btnBackSources = findViewById(R.id.btnBackSources)
         btnAddSource = findViewById(R.id.btnAddSource)
+        btnReloadMatches = findViewById(R.id.btnReloadMatches)
         tvHeaderTitle = findViewById(R.id.tvHeaderTitle)
         tvStatus = findViewById(R.id.tvStatus)
         rvMainGrid = findViewById(R.id.rvMainGrid)
@@ -67,6 +71,11 @@ class MainActivity : AppCompatActivity() {
 
         btnBackSources.setOnClickListener { showSourceManagerScreen() }
         btnAddSource.setOnClickListener { showAddSourceDialog() }
+        btnReloadMatches.setOnClickListener {
+            val targetUrl = activeSourceUrl.ifBlank { getSavedSources().first().second }
+            val targetTitle = activeSourceTitle.ifBlank { getSavedSources().first().first }
+            openSourceMatches(targetUrl, targetTitle, forceReload = true)
+        }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -79,8 +88,56 @@ class MainActivity : AppCompatActivity() {
         })
 
         val firstSource = getSavedSources().first()
+        activeSourceUrl = firstSource.second
+        activeSourceTitle = firstSource.first
+
         showSourceManagerScreen()
-        prefetchDefaultSource(firstSource.second, firstSource.first)
+        autoSyncLatestFeed(force = true)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Tự động làm mới lại nếu mở lại app từ nền sau hơn 60 giây
+        if (System.currentTimeMillis() - lastAutoSyncTimeMs > 60_000L) {
+            autoSyncLatestFeed(force = false)
+        }
+    }
+
+    private fun buildFreshUrl(rawUrl: String): String {
+        val sep = if (rawUrl.contains("?")) "&" else "?"
+        return "$rawUrl${sep}t=${System.currentTimeMillis()}"
+    }
+
+    private fun autoSyncLatestFeed(force: Boolean) {
+        val targetUrl = activeSourceUrl.ifBlank { getSavedSources().first().second }
+        val targetTitle = activeSourceTitle.ifBlank { getSavedSources().first().first }
+        if (!force && targetUrl.isBlank()) return
+
+        lastAutoSyncTimeMs = System.currentTimeMillis()
+        tvStatus.text = "Đang tự động cập nhật dữ liệu mới nhất từ $targetTitle..."
+
+        lifecycleScope.launch {
+            val res = repo.loadFromUrlOrAsset(this@MainActivity, buildFreshUrl(targetUrl))
+            res.onSuccess { feed ->
+                activeSourceUrl = targetUrl
+                activeSourceTitle = targetTitle
+                allMatches = feed.matches
+                lastUpdatedText = feed.updatedAt.ifBlank { feed.title }
+                saveSourceMeta(targetUrl, lastUpdatedText, allMatches.size)
+
+                if (isShowingMatches) {
+                    showMatchListScreen("$targetTitle (${allMatches.size} trận)", allMatches)
+                } else {
+                    showSourceManagerScreen()
+                }
+            }.onFailure {
+                if (!isShowingMatches) {
+                    tvStatus.text = "Chọn một nguồn bên dưới hoặc bấm + Thêm link"
+                } else {
+                    tvStatus.text = "Cập nhật lúc $lastUpdatedText • ${allMatches.size} trận đấu"
+                }
+            }
+        }
     }
 
     private fun getSavedSources(): MutableList<Pair<String, String>> {
@@ -135,42 +192,38 @@ class MainActivity : AppCompatActivity() {
         }.getOrNull()
     }
 
-    private fun prefetchDefaultSource(url: String, name: String) {
-        tvStatus.text = "Đang đồng bộ dữ liệu từ $name..."
-        lifecycleScope.launch {
-            val res = repo.loadFromUrlOrAsset(this@MainActivity, url)
-            res.onSuccess { feed ->
-                activeSourceUrl = url
-                allMatches = feed.matches
-                lastUpdatedText = feed.updatedAt.ifBlank { feed.title }
-                saveSourceMeta(url, lastUpdatedText, allMatches.size)
-                if (!isShowingMatches) {
-                    showSourceManagerScreen()
-                }
-            }.onFailure {
-                tvStatus.text = "Chọn một nguồn bên dưới hoặc bấm + Thêm link"
-            }
-        }
-    }
-
     private fun openSourceMatches(url: String, sourceTitle: String, forceReload: Boolean = false) {
         if (!forceReload && url == activeSourceUrl && allMatches.isNotEmpty()) {
             showMatchListScreen("$sourceTitle (${allMatches.size} trận)", allMatches)
             return
         }
 
-        tvStatus.text = "Đang tải danh sách trận từ $sourceTitle..."
+        btnReloadMatches.isEnabled = false
+        tvStatus.text = "Đang tải dữ liệu mới nhất từ $sourceTitle..."
+
         lifecycleScope.launch {
-            val res = repo.loadFromUrlOrAsset(this@MainActivity, url)
+            val res = repo.loadFromUrlOrAsset(this@MainActivity, buildFreshUrl(url))
+            btnReloadMatches.isEnabled = true
+
             res.onSuccess { feed ->
                 activeSourceUrl = url
+                activeSourceTitle = sourceTitle
                 allMatches = feed.matches
                 lastUpdatedText = feed.updatedAt.ifBlank { feed.title }
+                lastAutoSyncTimeMs = System.currentTimeMillis()
                 saveSourceMeta(url, lastUpdatedText, allMatches.size)
+
                 showMatchListScreen("$sourceTitle (${allMatches.size} trận)", allMatches)
+                if (forceReload) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Đã cập nhật (${allMatches.size} trận • $lastUpdatedText)",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
             }.onFailure { err ->
-                tvStatus.text = "Lỗi tải nguồn: ${err.message ?: "Kiểm tra lại đường dẫn"}"
-                Toast.makeText(this@MainActivity, "Không tải được dữ liệu từ nguồn này", Toast.LENGTH_SHORT).show()
+                tvStatus.text = "Lỗi tải nguồn: ${err.message ?: "Kiểm tra lại kết nối mạng"}"
+                Toast.makeText(this@MainActivity, "Không tải được dữ liệu mới", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -179,6 +232,7 @@ class MainActivity : AppCompatActivity() {
         isShowingMatches = false
         tvHeaderTitle.text = "Quản lý nguồn"
         btnBackSources.visibility = View.GONE
+        btnReloadMatches.visibility = View.GONE
         btnAddSource.visibility = View.VISIBLE
 
         val saved = getSavedSources()
@@ -189,9 +243,9 @@ class MainActivity : AppCompatActivity() {
 
         saved.forEachIndexed { idx, (name, url) ->
             val style = when (idx) {
-                0 -> 0 // Xanh ngọc (Mint) giống thẻ đầu tiên
-                1 -> 1 // Cam nổi bật giống thẻ thứ 2
-                else -> 3 // Nền tối sang trọng cho các nguồn tiếp theo
+                0 -> 0
+                1 -> 1
+                else -> 3
             }
             val meta = getSourceMeta(url)
             val subtitle = if (meta != null && meta.second > 0) {
@@ -212,7 +266,6 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        // Thẻ "+ Thêm nguồn mới" nằm ngay sau danh sách các nguồn đã thêm
         cards.add(
             SourceCardItem(
                 id = "add_new",
@@ -236,6 +289,7 @@ class MainActivity : AppCompatActivity() {
         tvHeaderTitle.text = title
         btnBackSources.visibility = View.VISIBLE
         btnAddSource.visibility = View.GONE
+        btnReloadMatches.visibility = View.VISIBLE
 
         tvStatus.text = "Cập nhật lúc $lastUpdatedText • ${matches.size} trận đấu"
         rvMainGrid.adapter = matchAdapter
@@ -284,6 +338,7 @@ class MainActivity : AppCompatActivity() {
                         if (it.second == url) newName to url else it
                     }
                     saveSources(list)
+                    if (activeSourceUrl == url) activeSourceTitle = newName
                     showSourceManagerScreen()
                 }
             }
