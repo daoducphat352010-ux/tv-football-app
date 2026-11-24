@@ -27,12 +27,15 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
 data class LeagueOption(
     val title: String,
-    val slugs: List<String>
+    val espnSlugs: List<String>,
+    val footballDataCode: String? = null,
+    val sportsDbLeagueId: String? = null
 )
 
 data class StandingRow(
@@ -53,6 +56,7 @@ data class StandingRow(
 data class FixtureRow(
     val leagueOrRound: String,
     val dateTimeText: String,
+    val epochMillis: Long,
     val statusText: String,
     val isLive: Boolean,
     val isFinished: Boolean,
@@ -76,20 +80,23 @@ class StatsActivity : AppCompatActivity() {
     private var mode: String = "STANDINGS"
     private var selectedLeagueIndex: Int = 0
 
+    // Tùy chọn: điền API key miễn phí từ football-data.org nếu muốn ưu tiên thêm cho các giải hỗ trợ
+    private val footballDataApiKey: String = "8ae213ca347e4eae893ed3f3df740efd"
+
     private val leagues = listOf(
-        LeagueOption("Ngoại Hạng Anh", listOf("eng.1")),
-        LeagueOption("La Liga", listOf("esp.1")),
-        LeagueOption("Serie A", listOf("ita.1")),
-        LeagueOption("Bundesliga", listOf("ger.1")),
-        LeagueOption("Ligue 1", listOf("fra.1")),
-        LeagueOption("Champions League", listOf("uefa.champions")),
-        LeagueOption("Europa League", listOf("uefa.europa")),
+        LeagueOption("Ngoại Hạng Anh", listOf("eng.1"), footballDataCode = "PL", sportsDbLeagueId = "4328"),
+        LeagueOption("La Liga", listOf("esp.1"), footballDataCode = "PD", sportsDbLeagueId = "4335"),
+        LeagueOption("Serie A", listOf("ita.1"), footballDataCode = "SA", sportsDbLeagueId = "4332"),
+        LeagueOption("Bundesliga", listOf("ger.1"), footballDataCode = "BL1", sportsDbLeagueId = "4331"),
+        LeagueOption("Ligue 1", listOf("fra.1"), footballDataCode = "FL1", sportsDbLeagueId = "4334"),
+        LeagueOption("Champions League", listOf("uefa.champions"), footballDataCode = "CL", sportsDbLeagueId = "4480"),
+        LeagueOption("Europa League", listOf("uefa.europa"), sportsDbLeagueId = "4481"),
         LeagueOption("Conference League", listOf("uefa.europa.conf")),
-        LeagueOption("V-League 1", listOf("vnm.1", "vie.1"))
+        LeagueOption("V-League 1", listOf("vnm.1", "vie.1"), sportsDbLeagueId = "4929")
     )
 
     companion object {
-        private val logoCache = LruCache<String, Bitmap>(150)
+        private val logoCache = LruCache<String, Bitmap>(160)
 
         suspend fun loadLogo(url: String): Bitmap? = withContext(Dispatchers.IO) {
             if (url.isBlank()) return@withContext null
@@ -99,6 +106,7 @@ class StatsActivity : AppCompatActivity() {
                     connectTimeout = 8000
                     readTimeout = 8000
                     instanceFollowRedirects = true
+                    setRequestProperty("User-Agent", "Mozilla/5.0")
                 }
                 conn.inputStream.use { stream ->
                     BitmapFactory.decodeStream(stream)?.also { bmp ->
@@ -151,32 +159,39 @@ class StatsActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             if (mode == "STANDINGS") {
-                val rows = fetchStandings(league)
-                if (rows.isEmpty()) {
-                    tvStatus.text = "Chưa có dữ liệu bảng xếp hạng cho ${league.title}"
+                val rows = fetchStandingsMultiSource(league)
+                tvStatus.text = if (rows.isEmpty()) {
+                    "Chưa có dữ liệu bảng xếp hạng cho ${league.title}"
                 } else {
-                    tvStatus.text = "${league.title} • ${rows.size} câu lạc bộ"
+                    "${league.title} • ${rows.size} câu lạc bộ"
                 }
                 rvContent.adapter = StandingAdapter(rows)
             } else {
-                val fixtures = fetchFixtures(league)
-                if (fixtures.isEmpty()) {
-                    tvStatus.text = "Chưa có dữ liệu lịch thi đấu cho ${league.title}"
+                val fixtures = fetchFixturesMultiSource(league)
+                tvStatus.text = if (fixtures.isEmpty()) {
+                    "Chưa có dữ liệu lịch thi đấu cho ${league.title}"
                 } else {
-                    tvStatus.text = "${league.title} • ${fixtures.size} trận (3 tuần)"
+                    "${league.title} • ${fixtures.size} trận (kết quả & lịch đá)"
                 }
                 rvContent.adapter = FixtureAdapter(fixtures)
             }
         }
     }
 
-    private suspend fun fetchJson(urlStr: String): JSONObject? = withContext(Dispatchers.IO) {
+    private suspend fun fetchJson(
+        urlStr: String,
+        headers: Map<String, String> = emptyMap()
+    ): JSONObject? = withContext(Dispatchers.IO) {
         runCatching {
             val conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 10000
                 readTimeout = 10000
                 instanceFollowRedirects = true
                 setRequestProperty("Accept", "application/json")
+                setRequestProperty("User-Agent", "Mozilla/5.0")
+                for ((k, v) in headers) {
+                    setRequestProperty(k, v)
+                }
             }
             if (conn.responseCode !in 200..299) return@runCatching null
             val body = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
@@ -184,7 +199,21 @@ class StatsActivity : AppCompatActivity() {
         }.getOrNull()
     }
 
-    private fun parseEntriesArray(
+    private fun formatGoalDiff(raw: String, gfStr: String, gaStr: String): String {
+        val cleanRaw = raw.trim()
+        val chosen = if (cleanRaw.isNotEmpty() && cleanRaw != "0") {
+            cleanRaw
+        } else {
+            val gf = gfStr.toIntOrNull()
+            val ga = gaStr.toIntOrNull()
+            if (gf != null && ga != null) (gf - ga).toString() else cleanRaw.ifEmpty { "0" }
+        }
+        return if (!chosen.startsWith("-") && !chosen.startsWith("+") && chosen != "0") {
+            "+$chosen"
+        } else chosen
+    }
+
+    private fun parseEspnEntriesArray(
         entries: JSONArray,
         groupName: String,
         outList: MutableList<StandingRow>
@@ -219,15 +248,7 @@ class StatsActivity : AppCompatActivity() {
             val rankVal = (statsMap["rank"] ?: statsMap["RK"])?.toIntOrNull() ?: (eIdx + 1)
             val gfVal = statsMap["pointsFor"] ?: statsMap["GF"] ?: statsMap["F"] ?: "0"
             val gaVal = statsMap["pointsAgainst"] ?: statsMap["GA"] ?: statsMap["A"] ?: "0"
-
-            val gdRaw = statsMap["pointDifferential"] ?: statsMap["GD"] ?: run {
-                val gfNum = gfVal.toIntOrNull()
-                val gaNum = gaVal.toIntOrNull()
-                if (gfNum != null && gaNum != null) (gfNum - gaNum).toString() else "0"
-            }
-            val gdFormatted = if (!gdRaw.startsWith("-") && !gdRaw.startsWith("+") && gdRaw != "0") {
-                "+$gdRaw"
-            } else gdRaw
+            val gdRaw = statsMap["pointDifferential"] ?: statsMap["GD"] ?: "0"
 
             outList.add(
                 StandingRow(
@@ -241,15 +262,15 @@ class StatsActivity : AppCompatActivity() {
                     lost = statsMap["losses"] ?: statsMap["L"] ?: "0",
                     goalsFor = gfVal,
                     goalsAgainst = gaVal,
-                    gd = gdFormatted,
+                    gd = formatGoalDiff(gdRaw, gfVal, gaVal),
                     points = statsMap["points"] ?: statsMap["P"] ?: "0"
                 )
             )
         }
     }
 
-    private suspend fun fetchStandings(league: LeagueOption): List<StandingRow> {
-        for (slug in league.slugs) {
+    private suspend fun fetchEspnStandings(league: LeagueOption): List<StandingRow> {
+        for (slug in league.espnSlugs) {
             val url = "https://site.api.espn.com/apis/v2/sports/soccer/$slug/standings"
             val root = fetchJson(url) ?: continue
             val result = mutableListOf<StandingRow>()
@@ -261,7 +282,7 @@ class StatsActivity : AppCompatActivity() {
                     val groupName = child.optString("name", "")
                     val entries = child.optJSONObject("standings")?.optJSONArray("entries")
                     if (entries != null) {
-                        parseEntriesArray(entries, groupName, result)
+                        parseEspnEntriesArray(entries, groupName, result)
                     }
                 }
             }
@@ -269,7 +290,7 @@ class StatsActivity : AppCompatActivity() {
             if (result.isEmpty()) {
                 val directEntries = root.optJSONObject("standings")?.optJSONArray("entries")
                 if (directEntries != null) {
-                    parseEntriesArray(directEntries, league.title, result)
+                    parseEspnEntriesArray(directEntries, league.title, result)
                 }
             }
 
@@ -278,7 +299,117 @@ class StatsActivity : AppCompatActivity() {
         return emptyList()
     }
 
-    private fun parseEventsFromRoot(
+    private suspend fun fetchFootballDataStandings(code: String): List<StandingRow> {
+        if (footballDataApiKey.isBlank()) return emptyList()
+        val url = "https://api.football-data.org/v4/competitions/$code/standings"
+        val root = fetchJson(url, mapOf("X-Auth-Token" to footballDataApiKey)) ?: return emptyList()
+        val standingsArr = root.optJSONArray("standings") ?: return emptyList()
+
+        var totalObj: JSONObject? = null
+        for (i in 0 until standingsArr.length()) {
+            val obj = standingsArr.optJSONObject(i) ?: continue
+            if (obj.optString("type") == "TOTAL") {
+                totalObj = obj
+                break
+            }
+        }
+        val tableArr = (totalObj ?: standingsArr.optJSONObject(0))?.optJSONArray("table")
+            ?: return emptyList()
+
+        val result = mutableListOf<StandingRow>()
+        for (i in 0 until tableArr.length()) {
+            val item = tableArr.optJSONObject(i) ?: continue
+            val teamObj = item.optJSONObject("team") ?: continue
+            val teamName = teamObj.optString("shortName").ifBlank {
+                teamObj.optString("name", "Đội bóng")
+            }
+            val gf = item.optInt("goalsFor", 0)
+            val ga = item.optInt("goalsAgainst", 0)
+            val gdVal = item.optInt("goalDifference", gf - ga)
+
+            result.add(
+                StandingRow(
+                    rank = item.optInt("position", i + 1),
+                    groupName = "",
+                    teamName = teamName,
+                    teamLogo = teamObj.optString("crest", ""),
+                    played = item.optInt("playedGames", 0).toString(),
+                    won = item.optInt("won", 0).toString(),
+                    drawn = item.optInt("draw", 0).toString(),
+                    lost = item.optInt("lost", 0).toString(),
+                    goalsFor = gf.toString(),
+                    goalsAgainst = ga.toString(),
+                    gd = formatGoalDiff(gdVal.toString(), gf.toString(), ga.toString()),
+                    points = item.optInt("points", 0).toString()
+                )
+            )
+        }
+        return result
+    }
+
+    private suspend fun fetchSportsDbStandings(leagueId: String): List<StandingRow> {
+        val url = "https://www.thesportsdb.com/api/v1/json/3/lookuptable.php?l=$leagueId"
+        val root = fetchJson(url) ?: return emptyList()
+        val tableArr = root.optJSONArray("table") ?: return emptyList()
+
+        val result = mutableListOf<StandingRow>()
+        for (i in 0 until tableArr.length()) {
+            val item = tableArr.optJSONObject(i) ?: continue
+            val gf = item.optString("intGoalsFor", "0")
+            val ga = item.optString("intGoalsAgainst", "0")
+            val gd = item.optString("intGoalDifference", "0")
+            result.add(
+                StandingRow(
+                    rank = item.optString("intRank", "${i + 1}").toIntOrNull() ?: (i + 1),
+                    groupName = item.optString("strGroup", ""),
+                    teamName = item.optString("strTeam", "Đội bóng"),
+                    teamLogo = item.optString("strBadge", ""),
+                    played = item.optString("intPlayed", "0"),
+                    won = item.optString("intWin", "0"),
+                    drawn = item.optString("intDraw", "0"),
+                    lost = item.optString("intLoss", "0"),
+                    goalsFor = gf,
+                    goalsAgainst = ga,
+                    gd = formatGoalDiff(gd, gf, ga),
+                    points = item.optString("intPoints", "0")
+                )
+            )
+        }
+        return result
+    }
+
+    private suspend fun fetchStandingsMultiSource(league: LeagueOption): List<StandingRow> {
+        if (league.footballDataCode != null && footballDataApiKey.isNotBlank()) {
+            val fdRows = fetchFootballDataStandings(league.footballDataCode)
+            if (fdRows.isNotEmpty()) return fdRows
+        }
+        val espnRows = fetchEspnStandings(league)
+        if (espnRows.isNotEmpty()) return espnRows
+
+        if (league.sportsDbLeagueId != null) {
+            val sdbRows = fetchSportsDbStandings(league.sportsDbLeagueId)
+            if (sdbRows.isNotEmpty()) return sdbRows
+        }
+        return emptyList()
+    }
+
+    private fun parseDateMillis(
+        rawDate: String,
+        isoShort: SimpleDateFormat,
+        isoFull: SimpleDateFormat
+    ): Long {
+        if (rawDate.isBlank()) return 0L
+        val parsed = runCatching { isoShort.parse(rawDate) }.getOrNull()
+            ?: runCatching { isoFull.parse(rawDate) }.getOrNull()
+            ?: runCatching {
+                SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
+                    timeZone = TimeZone.getTimeZone("UTC")
+                }.parse(rawDate.take(10))
+            }.getOrNull()
+        return parsed?.time ?: 0L
+    }
+
+    private fun parseEspnEventsFromRoot(
         root: JSONObject,
         leagueTitle: String,
         isoFmtShort: SimpleDateFormat,
@@ -292,9 +423,8 @@ class StatsActivity : AppCompatActivity() {
             val ev = events.optJSONObject(i) ?: continue
             val eventId = ev.optString("id", "")
             val rawDate = ev.optString("date", "")
-            val parsedDate = runCatching { isoFmtShort.parse(rawDate) }.getOrNull()
-                ?: runCatching { isoFmtFull.parse(rawDate) }.getOrNull()
-            val timeStr = if (parsedDate != null) outTimeFmt.format(parsedDate) else rawDate
+            val millis = parseDateMillis(rawDate, isoFmtShort, isoFmtFull)
+            val timeStr = if (millis > 0L) outTimeFmt.format(Date(millis)) else rawDate
 
             val comps = ev.optJSONArray("competitions") ?: continue
             if (comps.length() == 0) continue
@@ -342,6 +472,7 @@ class StatsActivity : AppCompatActivity() {
                 FixtureRow(
                     leagueOrRound = leagueTitle,
                     dateTimeText = timeStr,
+                    epochMillis = millis,
                     statusText = badgeText,
                     isLive = isLive,
                     isFinished = isFinished,
@@ -355,41 +486,105 @@ class StatsActivity : AppCompatActivity() {
         }
     }
 
-    private suspend fun fetchFixtures(league: LeagueOption): List<FixtureRow> {
-        val vnTz = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
-        val dateParamFmt = SimpleDateFormat("yyyyMMdd", Locale.US).apply { timeZone = vnTz }
-        val calStart = Calendar.getInstance(vnTz).apply { add(Calendar.DAY_OF_YEAR, -5) }
-        val calEnd = Calendar.getInstance(vnTz).apply { add(Calendar.DAY_OF_YEAR, 16) }
-        val datesRange = "${dateParamFmt.format(calStart.time)}-${dateParamFmt.format(calEnd.time)}"
-
-        val isoFmtShort = SimpleDateFormat("yyyy-MM-dd'T'HH:mm'Z'", Locale.US).apply {
+    private suspend fun parseSportsDbEventsArray(
+        arr: JSONArray?,
+        leagueTitle: String,
+        outTimeFmt: SimpleDateFormat,
+        seenKeys: MutableSet<String>,
+        outList: MutableList<FixtureRow>
+    ) {
+        if (arr == null) return
+        val utcFmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")
         }
-        val isoFmtFull = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+        val dateOnlyFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")
         }
-        val outTimeFmt = SimpleDateFormat("HH:mm • dd/MM", Locale.US).apply { timeZone = vnTz }
 
-        for (slug in league.slugs) {
+        for (i in 0 until arr.length()) {
+            val ev = arr.optJSONObject(i) ?: continue
+            val idEvent = ev.optString("idEvent", "")
+            val hName = ev.optString("strHomeTeam", "Home")
+            val aName = ev.optString("strAwayTeam", "Away")
+            val key = if (idEvent.isNotBlank()) "sdb_$idEvent" else "sdb_${hName}_${aName}_${ev.optString("dateEvent")}"
+            if (!seenKeys.add(key)) continue
+
+            val tsStr = ev.optString("strTimestamp", "").replace("T", " ").take(19)
+            val dateStr = ev.optString("dateEvent", "")
+            val millis = runCatching { utcFmt.parse(tsStr) }.getOrNull()?.time
+                ?: runCatching { dateOnlyFmt.parse(dateStr) }.getOrNull()?.time
+                ?: 0L
+            val timeLabel = if (millis > 0L) outTimeFmt.format(Date(millis)) else dateStr
+
+            val hScoreRaw = ev.optString("intHomeScore", "")
+            val aScoreRaw = ev.optString("intAwayScore", "")
+            val hasScore = hScoreRaw.isNotBlank() && aScoreRaw.isNotBlank() && hScoreRaw != "null" && aScoreRaw != "null"
+            val isFinished = hasScore || ev.optString("strStatus", "").contains("Match Finished", true)
+            val center = if (hasScore) "$hScoreRaw - $aScoreRaw" else "VS"
+            val badge = if (isFinished) "KẾT THÚC" else "SẮP ĐÁ"
+
+            outList.add(
+                FixtureRow(
+                    leagueOrRound = leagueTitle,
+                    dateTimeText = timeLabel,
+                    epochMillis = millis,
+                    statusText = badge,
+                    isLive = false,
+                    isFinished = isFinished,
+                    homeName = hName,
+                    homeLogo = ev.optString("strHomeTeamBadge", ""),
+                    awayName = aName,
+                    awayLogo = ev.optString("strAwayTeamBadge", ""),
+                    centerScore = center
+                )
+            )
+        }
+    }
+
+    private suspend fun fetchFixturesMultiSource(league: LeagueOption): List<FixtureRow> =
+        withContext(Dispatchers.IO) {
+            val vnTz = TimeZone.getTimeZone("Asia/Ho_Chi_Minh")
+            val dateParamFmt = SimpleDateFormat("yyyyMMdd", Locale.US).apply { timeZone = vnTz }
+            val isoFmtShort = SimpleDateFormat("yyyy-MM-dd'T'HH:mm'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val isoFmtFull = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val outTimeFmt = SimpleDateFormat("HH:mm • dd/MM", Locale.US).apply { timeZone = vnTz }
+
             val seenKeys = mutableSetOf<String>()
             val list = mutableListOf<FixtureRow>()
 
-            val rangeUrl = "https://site.api.espn.com/apis/site/v2/sports/soccer/$slug/scoreboard?dates=$datesRange&limit=150"
-            fetchJson(rangeUrl)?.let {
-                parseEventsFromRoot(it, league.title, isoFmtShort, isoFmtFull, outTimeFmt, seenKeys, list)
-            }
-
-            if (list.isEmpty()) {
+            // 1. Lấy từ ESPN (vòng mặc định + khoảng 3 tuần: -7 ngày đến +14 ngày)
+            for (slug in league.espnSlugs) {
                 val defaultUrl = "https://site.api.espn.com/apis/site/v2/sports/soccer/$slug/scoreboard?limit=150"
                 fetchJson(defaultUrl)?.let {
-                    parseEventsFromRoot(it, league.title, isoFmtShort, isoFmtFull, outTimeFmt, seenKeys, list)
+                    parseEspnEventsFromRoot(it, league.title, isoFmtShort, isoFmtFull, outTimeFmt, seenKeys, list)
                 }
+
+                for (offset in -7..14) {
+                    val cal = Calendar.getInstance(vnTz).apply { add(Calendar.DAY_OF_YEAR, offset) }
+                    val dayParam = dateParamFmt.format(cal.time)
+                    val dayUrl = "https://site.api.espn.com/apis/site/v2/sports/soccer/$slug/scoreboard?dates=$dayParam&limit=150"
+                    fetchJson(dayUrl)?.let {
+                        parseEspnEventsFromRoot(it, league.title, isoFmtShort, isoFmtFull, outTimeFmt, seenKeys, list)
+                    }
+                }
+                if (list.isNotEmpty()) break
             }
 
-            if (list.isNotEmpty()) return list
+            // 2. Bổ sung thêm các trận sắp đá & kết quả gần nhất từ TheSportsDB nếu có ID giải
+            if (league.sportsDbLeagueId != null) {
+                val nextRoot = fetchJson("https://www.thesportsdb.com/api/v1/json/3/eventsnextleague.php?id=${league.sportsDbLeagueId}")
+                parseSportsDbEventsArray(nextRoot?.optJSONArray("events"), league.title, outTimeFmt, seenKeys, list)
+
+                val pastRoot = fetchJson("https://www.thesportsdb.com/api/v1/json/3/eventspastleague.php?id=${league.sportsDbLeagueId}")
+                parseSportsDbEventsArray(pastRoot?.optJSONArray("events"), league.title, outTimeFmt, seenKeys, list)
+            }
+
+            list.sortedBy { it.epochMillis }
         }
-        return emptyList()
-    }
 
     inner class LeagueTabAdapter : RecyclerView.Adapter<LeagueTabAdapter.TabVH>() {
         inner class TabVH(val tv: TextView) : RecyclerView.ViewHolder(tv)
@@ -421,8 +616,13 @@ class StatsActivity : AppCompatActivity() {
         override fun getItemCount(): Int = leagues.size
     }
 
-inner class StandingAdapter(private val rows: List<StandingRow>) :
+    inner class StandingAdapter(private val rows: List<StandingRow>) :
         RecyclerView.Adapter<StandingAdapter.RowVH>() {
+
+        private fun findOptionalTextView(v: View, idName: String): TextView? {
+            val resId = v.resources.getIdentifier(idName, "id", v.context.packageName)
+            return if (resId != 0) v.findViewById(resId) else null
+        }
 
         inner class RowVH(v: View) : RecyclerView.ViewHolder(v) {
             val tvRank: TextView = v.findViewById(R.id.tvRank)
@@ -432,12 +632,8 @@ inner class StandingAdapter(private val rows: List<StandingRow>) :
             val tvWon: TextView = v.findViewById(R.id.tvWon)
             val tvDrawn: TextView = v.findViewById(R.id.tvDrawn)
             val tvLost: TextView = v.findViewById(R.id.tvLost)
-            val tvGf: TextView? = v.findViewById(
-                v.resources.getIdentifier("tvGoalsFor", "id", v.context.packageName)
-            )
-            val tvGa: TextView? = v.findViewById(
-                v.resources.getIdentifier("tvGoalsAgainst", "id", v.context.packageName)
-            )
+            val tvGf: TextView? = findOptionalTextView(v, "tvGoalsFor")
+            val tvGa: TextView? = findOptionalTextView(v, "tvGoalsAgainst")
             val tvGd: TextView = v.findViewById(R.id.tvGoalDiff)
             val tvPts: TextView = v.findViewById(R.id.tvPoints)
             var job: Job? = null
