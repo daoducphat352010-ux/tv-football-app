@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/tvLeagueTab"
+    android:layout_width="wrap_content"
+    android:layout_height="38dp"
+    android:layout_marginEnd="10dp"
+    android:background="@drawable/bg_pill_action"
+    android:clickable="true"
+    android:focusable="true"
+    android:gravity="center"
+    android:paddingStart="18dp"
+    android:paddingEnd="18dp"
+    android:singleLine="true"
+    android:text="Ngoại Hạng Anh"
+    android:textColor="#F8FAFC"
+    android:textSize="13sp"
+    android:textStyle="bold" />
