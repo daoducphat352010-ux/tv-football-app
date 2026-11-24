@@ -4,12 +4,17 @@ import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.StateListDrawable
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -47,6 +52,89 @@ class MainActivity : AppCompatActivity() {
     private val defaultFeedUrl =
         "https://raw.githubusercontent.com/daoducphat352010-ux/bongda-tv/refs/heads/main/feed.json"
 
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    private fun createFocusCardDrawable(
+        radiusDp: Int = 16,
+        normalStart: String = "#11192C",
+        normalEnd: String = "#0B1120",
+        focusStart: String = "#182947",
+        focusEnd: String = "#0F172A",
+        strokeNormal: String = "#1E293B",
+        strokeFocus: String = "#38BDF8"
+    ): Drawable {
+        val focused = GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(Color.parseColor(focusStart), Color.parseColor(focusEnd))
+        ).apply {
+            cornerRadius = dp(radiusDp).toFloat()
+            setStroke(dp(2), Color.parseColor(strokeFocus))
+        }
+
+        val normal = GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(Color.parseColor(normalStart), Color.parseColor(normalEnd))
+        ).apply {
+            cornerRadius = dp(radiusDp).toFloat()
+            setStroke(dp(1), Color.parseColor(strokeNormal))
+        }
+
+        return StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_focused), focused)
+            addState(intArrayOf(android.R.attr.state_selected), focused)
+            addState(intArrayOf(), normal)
+        }
+    }
+
+    private fun createCrestCircleDrawable(): Drawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(Color.parseColor("#1A253C"))
+            setStroke(dp(1), Color.parseColor("#2B3B5C"))
+        }
+    }
+
+    private fun createBadgeDrawable(
+        fillColor: String,
+        borderColor: String? = null,
+        radiusDp: Int = 8
+    ): Drawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(radiusDp).toFloat()
+            setColor(Color.parseColor(fillColor))
+            if (borderColor != null) {
+                setStroke(dp(1), Color.parseColor(borderColor))
+            }
+        }
+    }
+
+    private fun styleGridCardView(cardView: View) {
+        val ivHome = cardView.findViewById<ImageView?>(R.id.ivHomeLogo)
+        val ivAway = cardView.findViewById<ImageView?>(R.id.ivAwayLogo)
+        val tvScore = cardView.findViewById<TextView?>(R.id.tvScore)
+        val tvKickoff = cardView.findViewById<TextView?>(R.id.tvMatchKickoff)
+
+        if (ivHome != null && ivAway != null) {
+            // Thẻ trận đấu (item_match)
+            cardView.background = createFocusCardDrawable()
+            ivHome.background = createCrestCircleDrawable()
+            ivHome.setPadding(dp(6), dp(6), dp(6), dp(6))
+            ivAway.background = createCrestCircleDrawable()
+            ivAway.setPadding(dp(6), dp(6), dp(6), dp(6))
+            tvScore?.background = createBadgeDrawable("#1E293B", "#334155", 10)
+            tvScore?.setPadding(dp(10), dp(4), dp(10), dp(4))
+            tvKickoff?.setTextColor(Color.parseColor("#38BDF8"))
+        }
+
+        val existingFocusListener = cardView.onFocusChangeListener
+        cardView.setOnFocusChangeListener { v, hasFocus ->
+            existingFocusListener?.onFocusChange(v, hasFocus)
+            val scale = if (hasFocus) 1.035f else 1.0f
+            v.animate().scaleX(scale).scaleY(scale).setDuration(120).start()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -58,9 +146,23 @@ class MainActivity : AppCompatActivity() {
         tvStatus = findViewById(R.id.tvStatus)
         rvMainGrid = findViewById(R.id.rvMainGrid)
 
+        (window.decorView.findViewById<View>(android.R.id.content) as? ViewGroup)
+            ?.getChildAt(0)
+            ?.setBackgroundColor(Color.parseColor("#070B14"))
+
         rvMainGrid.layoutManager = GridLayoutManager(this, 3)
         rvMainGrid.setHasFixedSize(false)
         rvMainGrid.itemAnimator = null
+        rvMainGrid.addOnChildAttachStateChangeListener(object : RecyclerView.OnChildAttachStateChangeListener {
+            override fun onChildViewAttachedToWindow(view: View) {
+                styleGridCardView(view)
+            }
+
+            override fun onChildViewDetachedFromWindow(view: View) {
+                view.scaleX = 1.0f
+                view.scaleY = 1.0f
+            }
+        })
 
         sourceAdapter = SourceAdapter(
             mutableListOf(),
@@ -268,12 +370,12 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        // 2 mục tích hợp sẵn: BXH & Lịch thi đấu 9 giải đấu
+        // 2 mục tích hợp sẵn: BXH & Lịch thi đấu 8 giải đấu
         cards.add(
             SourceCardItem(
                 id = "builtin_standings",
                 title = "Bảng Xếp Hạng",
-                subtitle = "5 giải VĐQG châu Âu, 3 cúp châu Âu & V-League 1 cập nhật trực tiếp",
+                subtitle = "5 giải VĐQG châu Âu & 3 cúp châu Âu cập nhật trực tiếp",
                 iconText = "🏆",
                 styleType = 4,
                 builtInMode = "STANDINGS"
@@ -284,7 +386,7 @@ class MainActivity : AppCompatActivity() {
             SourceCardItem(
                 id = "builtin_fixtures",
                 title = "Lịch Thi Đấu",
-                subtitle = "Lịch & kết quả 5 giải châu Âu, 3 cúp châu Âu & V-League 1",
+                subtitle = "Lịch & kết quả 5 giải châu Âu & 3 cúp châu Âu (giờ Việt Nam)",
                 iconText = "📅",
                 styleType = 5,
                 builtInMode = "FIXTURES"
@@ -402,7 +504,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val etName = EditText(this).apply {
-            hint = "Tên nguồn (ví dụ: Bóng Đá 2, Kênh Thể Thao...)"
+            hint = "Tên nguồn (ví dụ: GioVang, Kênh Thể Thao...)"
             setSingleLine(true)
         }
         val etUrl = EditText(this).apply {
@@ -443,8 +545,13 @@ class MainActivity : AppCompatActivity() {
         val dialog = AlertDialog.Builder(this).create()
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundResource(R.drawable.bg_dialog_dark)
-            setPadding(44, 34, 44, 30)
+            background = createBadgeDrawable("#0F172A", "#38BDF8", 18)
+            setPadding(dp(24), dp(20), dp(24), dp(18))
+        }
+
+        val topMetaRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
         }
 
         val badge = TextView(this).apply {
@@ -453,36 +560,60 @@ class MainActivity : AppCompatActivity() {
             textSize = 11f
             letterSpacing = 0.08f
             setTypeface(null, Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
+
+        val timeChip = TextView(this).apply {
+            text = "${match.kickoff} • ${match.status}"
+            setTextColor(Color.WHITE)
+            textSize = 11f
+            setTypeface(null, Typeface.BOLD)
+            background = createBadgeDrawable(
+                if (match.status.equals("LIVE", true)) "#EF4444" else "#0284C7",
+                radiusDp = 6
+            )
+            setPadding(dp(8), dp(2), dp(8), dp(2))
+        }
+
+        topMetaRow.addView(badge)
+        topMetaRow.addView(timeChip)
 
         val titleView = TextView(this).apply {
             text = "${match.homeName}  vs  ${match.awayName}"
             setTextColor(Color.WHITE)
             textSize = 20f
             setTypeface(null, Typeface.BOLD)
-            setPadding(0, 6, 0, 4)
+            setPadding(0, dp(8), 0, dp(4))
         }
 
         val subView = TextView(this).apply {
-            text = "Chọn phòng bình luận viên để bắt đầu phát trực tiếp"
+            text = "Chọn phòng bình luận viên (${match.streams.size} phòng khả dụng)"
             setTextColor(Color.parseColor("#94A3B8"))
             textSize = 13f
-            setPadding(0, 0, 0, 20)
+            setPadding(0, 0, 0, dp(14))
         }
 
-        container.addView(badge)
+        container.addView(topMetaRow)
         container.addView(titleView)
         container.addView(subView)
 
         match.streams.forEachIndexed { idx, stream ->
             val btn = Button(this).apply {
-                text = "🎙   ${stream.label}"
+                text = "🎙   ${stream.label}     •     HD Trực tiếp ›"
                 isAllCaps = false
                 textSize = 15f
                 setTextColor(Color.WHITE)
                 gravity = Gravity.START or Gravity.CENTER_VERTICAL
-                setPadding(28, 18, 28, 18)
-                setBackgroundResource(R.drawable.bg_pill_action)
+                setPadding(dp(16), dp(12), dp(16), dp(12))
+                background = createFocusCardDrawable(
+                    radiusDp = 12,
+                    normalStart = "#162035",
+                    normalEnd = "#11192C",
+                    focusStart = "#0284C7",
+                    focusEnd = "#1D4ED8",
+                    strokeNormal = "#293754",
+                    strokeFocus = "#FFFFFF"
+                )
                 stateListAnimator = null
                 isFocusable = true
 
@@ -490,7 +621,7 @@ class MainActivity : AppCompatActivity() {
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply {
-                    bottomMargin = 12
+                    bottomMargin = dp(10)
                 }
                 layoutParams = lp
 
